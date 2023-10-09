@@ -1,0 +1,30 @@
+{
+    "name": "dalpras/smart-template",
+    "description": "Smart template engine for key-value substitutions",
+    "license": "proprietary",
+    "type": "library",
+    "require": {
+        "php": ">=8.2"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.1"
+    },    
+    "autoload": {
+        "psr-4": {
+            "DalPraS\\SmartTemplate\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Stefano Dal Prà"
+        }
+    ],
+	"config": {
+		"vendor-dir": "vendor",
+		"allow-plugins": {
+			"php-http/discovery": true
+		}
+	},
+	"minimum-stability" : "dev",
+	"prefer-stable" : true    
+}
