@@ -8,10 +8,15 @@
     },
     "require-dev": {
         "phpunit/phpunit": "^10.1"
-    },    
+    },
     "autoload": {
         "psr-4": {
             "DalPraS\\SmartTemplate\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "DalPraS\\UnitTests\\": "tests/UnitTests/"
         }
     },
     "authors": [
@@ -26,5 +31,5 @@
 		}
 	},
 	"minimum-stability" : "dev",
-	"prefer-stable" : true    
+	"prefer-stable" : true
 }
