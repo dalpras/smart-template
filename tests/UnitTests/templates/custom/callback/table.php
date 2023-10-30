@@ -16,4 +16,8 @@ return [
     'row' => <<<html
         <tr><td>{text}</td></tr>
         html,
+
+    'deeper' => [
+        'table' => fn($message) => 'This is a ' . $message 
+    ]
 ];

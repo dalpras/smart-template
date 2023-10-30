@@ -1,7 +1,12 @@
 <?php declare(strict_types=1);
 
+namespace DalPraS\UnitTests;
+
+use DalPraS\SmartTemplate\Exception\TemplateNotFoundException;
 use DalPraS\SmartTemplate\TemplateEngine;
+use DalPraS\UnitTests\Enums\Status;
 use PHPUnit\Framework\TestCase;
+use TypeError;
 
 final class TemplateEngineTest extends TestCase
 {
@@ -42,6 +47,19 @@ final class TemplateEngineTest extends TestCase
         $this->assertEquals($expectedOutput, $result);
     }
 
+    public function testRenderDeeperCallbackTemplate()
+    {
+        $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
+
+        $result = $templateEngine->setUglify(true)->render('callback/table.php', function ($render) {
+            return $render['deeper']['table']('message for better living');
+        });
+
+        $expectedOutput = 'This is a message for better living';
+
+        $this->assertEquals($expectedOutput, $result);
+    }
+
     public function testRenderCustomTemplate()
     {
         $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
@@ -71,7 +89,24 @@ final class TemplateEngineTest extends TestCase
         html;
 
         $this->assertEquals($expectedOutput, $result);        
+    }
 
+    public function testTemplateNotFoundException() 
+    {
+        $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
+        $this->expectException(TemplateNotFoundException::class);
+        $result = $templateEngine->render('callback/table-not-present.php', fn($render) => $render['table']('hi', ['first col', 'second col']));
+    }
+
+
+    /**
+     * In future perhaps array will support enums as keys.
+     */
+    public function testEnumAsTemplateKey()
+    {
+        $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
+        $this->expectException(TypeError::class);
+        $result = $templateEngine->render('enumkeys.php', fn($render) => $render[Status::ON](['{message}' => 'give a try!']));
     }
 
 }
