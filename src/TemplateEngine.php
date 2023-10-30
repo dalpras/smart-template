@@ -4,12 +4,21 @@ namespace DalPraS\SmartTemplate;
 
 use Closure;
 use DalPraS\SmartTemplate\Collection\RenderCollection;
+use DalPraS\SmartTemplate\Exception\TemplateNotFoundException;
 use InvalidArgumentException;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use SplFileInfo;
 
 class TemplateEngine
 {
+    /**
+     * Keep information about the name used for searching a template file and the phisical file name.
+     * 
+     * @var SplFileInfo[]
+     */
+    private array $proxies = [];
+
     /**
      * Compose the key:value pair using intennal escaping functions
      */
@@ -62,17 +71,14 @@ class TemplateEngine
         if ( isset($this->renders[$template]) ) {
             return $callback($this->renders[$template], $this) ?? '';
         }
-        // ritorna il percorso assoluto del template cercato
-        $namespace = $this->find($template);
+        // cerchiamo i template nel filesystem
+        $fileInfo = $this->find($template);
 
-        if ($namespace === null) {
-            $collection = new RenderCollection([]);
-        } else {
-            $collection = new RenderCollection(require($namespace));
-            self::convertValuesToClosures($collection, $this->invokeArgs($namespace), $this->uglify);
-        }
-        $this->renders[$namespace ?? $template] = $collection;
-        return $callback($this->renders[$namespace ?? $template], $this) ?? '';
+        $namespace = $fileInfo->getRealPath();
+        $collection = new RenderCollection(require($namespace));
+        self::convertValuesToClosures($collection, $this->invokeArgs($namespace), $this->uglify);
+        $this->renders[$namespace] = $collection;
+        return $callback($this->renders[$namespace], $this) ?? '';
     }
 
     private function invokeArgs(string $namespace): Closure
@@ -105,21 +111,24 @@ class TemplateEngine
     }
 
     /**
-     * Trova il file più indicato e ne ritorna il percorso assoluto.
-     * Se non lo trova ritorna semplicemente il nome passato.
+     * Associa a tutte le chiavi che sono chiamate il riferimento fisico su filesystem oppure null.
      */
-    private function find(string $name): ?string
+    private function find(string $name): SplFileInfo
     {
-        /** @var \SplFileInfo $fileInfo */
-        foreach ($this->directoryIterator as $fileInfo) {
-            if ($fileInfo->isDir()) continue;
-            $realPath = $fileInfo->getRealPath();
-            // cerco il percorso come parte del namespace
-            if ( preg_match('~' . preg_quote($name, '~') . '$~', $realPath, $matches) ) {
-                return $realPath;
+        // if not setted, search in filesystem
+        if ( isset($this->proxies[$name]) === false ) {
+            /** @var \SplFileInfo $fileInfo */
+            foreach ($this->directoryIterator as $fileInfo) {
+                if ($fileInfo->isFile() === false) continue;
+                // search for file
+                if ( preg_match('~' . preg_quote($name, '~') . '$~', $fileInfo->getRealPath(), $matches) ) {
+                    $found = $fileInfo;
+                    break;
+                }
             }
+            $this->proxies[$name] = $found ?? throw new TemplateNotFoundException("Could not find template in templates folder");
         }
-        return null;
+        return $this->proxies[$name];
     }
 
     /**
@@ -216,30 +225,6 @@ class TemplateEngine
     {
         return preg_replace('/(?<!%)%/', '%%', $value);
     }
-
-    // private static function vnsprintf(string $format, array $args, callable $invokeArgs): string
-    // {
-    //     $count = count($args);
-    //     if ($count === 0) {
-    //         return $format;
-    //     }
-    //     // Escape "%" in the format string
-    //     $format = str_replace('%', '%%', $format);
-
-    //     $replace = preg_filter('~^(.*)$~', '%\1$s', range(1, $count));
-
-    //     $format = str_replace(array_keys($args), $replace, $format);
-
-    //     // applicazione della callback su ogni valore da sostituire
-    //     foreach ($args as &$value) {
-    //         if ($value instanceof Closure) {
-    //             $value = $value(...$invokeArgs());
-    //         }
-    //     }
-
-    //     $values = array_combine($replace, $args);
-    //     return vsprintf($format, $values);
-    // }
 
     /**
      * Get the value of uglify
