@@ -3,9 +3,12 @@ Smart Template
 
 ## Introduction
 
-The `TemplateEngine` class is a part of the SmartTemplate library, designed for efficient template rendering. 
-It allows you to manage templates stored in a directory and render them by replacing placeholders with values provided through an array or callback functions. 
-Additionally, you can customize attribute rendering for HTML elements to suit your specific needs.
+Tired of template engines that create new languages that transpile to PHP and need custom service injectings or other tricks?  
+Well PHP 8 have the potential for building an engine based on callbacks lightning fast.  
+Just PHP! with a builtin tag replacing system and rendering functions in a very small code.  
+The class `TemplateEngine` is a part of the smart-template library, designed for efficient template rendering, it's the core of the system.   
+It allows you to manage templates stored in a directory that mute to callbacks rendering functions with placeholders.  
+Additionally, you can customize attribute rendering for HTML elements to suit your specific needs.  
 
 ## Features
 
@@ -14,9 +17,17 @@ Additionally, you can customize attribute rendering for HTML elements to suit yo
 - Customize attribute rendering for HTML elements.
 - Uglify templates by removing comments and extra whitespace.
 - Manage templates stored in a directory or add custom templates.
+- Create custom callabacks that can work with your callbacks.
 
 ## Installation
 
+As usual, composer make the job for you:
+
+```bash
+
+composer require dalpras/smart-template
+
+```
 
 ## Constructor
 
