@@ -37,21 +37,25 @@ class TemplateEngine
      */
     private array $renders = [];
 
-    private RecursiveIteratorIterator $directoryIterator;
+    /**
+     * Directory where templates are stored
+     */
+    private ?RecursiveIteratorIterator $directoryIterator = null;
 
     /**
      * Inizializza la directory dove trovare i templates.
      */
-    public function __construct(string $directory)
+    public function __construct(string $directory = null)
     {
-        if (!is_dir($directory)) {
-            throw new InvalidArgumentException('Templates directory is invalid');
+        if ( $directory !== null ) {
+            if ( is_dir($directory) === false ) {
+                throw new InvalidArgumentException('Templates directory is invalid');
+            }
+            $this->directoryIterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::LEAVES_ONLY // Iterate only over files, excluding directories
+            );
         }
-        $this->directoryIterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::LEAVES_ONLY // Iterate only over files, excluding directories
-        );
-
         $this->attributeComposer = fn($name, $value) => sprintf('%s="%s"', self::escapeSprintf((string) $name), self::escapeSprintf((string) $value));
         $this->attributeRender   = fn($name, $value) => ($this->attributeComposer)($name, $value);
     }
@@ -66,7 +70,7 @@ class TemplateEngine
      * Il renderer è invocato con un array di parametri da sostituire nel template e da una stringa $carry che accumula i rendering fino a quel momento svolti dal renderer.
      * I parametri da sostituire possono essere stringhe o callback (che vengono invocate prima della sostituzione).
      */
-    public function render(string $template, Closure $callback): string
+    public function render(string $template, Closure $callback): mixed
     {
         if ( isset($this->renders[$template]) ) {
             return $callback($this->renders[$template], $this) ?? '';
@@ -117,13 +121,15 @@ class TemplateEngine
     {
         // if not setted, search in filesystem
         if ( isset($this->proxies[$name]) === false ) {
-            /** @var \SplFileInfo $fileInfo */
-            foreach ($this->directoryIterator as $fileInfo) {
-                if ($fileInfo->isFile() === false) continue;
-                // search for file
-                if ( preg_match('~' . preg_quote($name, '~') . '$~', $fileInfo->getRealPath(), $matches) ) {
-                    $found = $fileInfo;
-                    break;
+            if ($this->directoryIterator !== null) {
+                /** @var \SplFileInfo $fileInfo */
+                foreach ($this->directoryIterator as $fileInfo) {
+                    if ($fileInfo->isFile() === false) continue;
+                    // search for file
+                    if ( preg_match('~' . preg_quote($name, '~') . '$~', $fileInfo->getRealPath(), $matches) ) {
+                        $found = $fileInfo;
+                        break;
+                    }
                 }
             }
             $this->proxies[$name] = $found ?? throw new TemplateNotFoundException("Could not find template in templates folder");
