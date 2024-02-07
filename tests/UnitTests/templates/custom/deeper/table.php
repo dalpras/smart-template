@@ -1,11 +1,11 @@
 <?php
 return [
-    'table' => <<<html
-        %toEscape%
-        <table class="table table-sm">
-            {rows}
-        </table>
-        html,
+    'table' => 
+        '%toEscape%' .
+        '<table class="table table-sm">' .
+            '{rows}' .
+        '</table>'
+    ,
         
     'tr' => <<<html
         <tr>{cols}</tr>

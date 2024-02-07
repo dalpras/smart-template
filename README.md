@@ -15,7 +15,6 @@ Additionally, you can customize attribute rendering for HTML elements to suit yo
 - Render templates by replacing placeholders with values.
 - Support for template parts and nested rendering.
 - Customize attribute rendering for HTML elements.
-- Uglify templates by removing comments and extra whitespace.
 - Manage templates stored in a directory or add custom templates.
 - Create custom callabacks that can work with your callbacks.
 
@@ -65,10 +64,6 @@ The loaded template is returned as a `RenderCollection object`, which is a custo
 
 This method recursively walks through the templates and converts their values to closures using the toClosure() method.
 
-### toUglify()
-
-This method is used to perform uglification of the template output by removing comments and extra whitespace.
-
 ### vnsprintf()
 
 This method is a custom implementation of a named-param vsprintf().
@@ -76,6 +71,3 @@ It takes a format string, an array of arguments, and a callback function as argu
 It replaces placeholders in the format string with corresponding values from the arguments array.
 If an argument is a closure, it is invoked using the provided callback function before being replaced in the format string.
 
-### isUglify() and setUglify()
-
-These methods are simple getter and setter methods for the $uglify property.

@@ -1,17 +1,16 @@
 <?php
 return [
-    'table' => <<<html
-        <div class="table-responsive">
-            <table class="table table-sm {table-class}">
-                <thead class="{thead-class}">
-                    <tr>{cols}</tr>
-                </thead>
-                <tbody>
-                    {rows}
-                </tbody>                
-            </table>
-        </div>
-        html,
+    'table' =>
+        '<div class="table-responsive">' .
+            '<table class="table table-sm {table-class}">' .
+                '<thead class="{thead-class}">' .
+                    '<tr>{cols}</tr>' .
+                '</thead>' .
+                '<tbody>' .
+                    '{rows}' .
+                '</tbody>' .
+            '</table>' .
+        '</div>',
 
     'tr' => [
         'base' => <<<html

@@ -9,8 +9,7 @@ return [
                 {rows}
             </table>
             html;
-        $callback = self::closure($html, $this->invokeArgs(__FILE__));
-        return $callback(['{rows}' => 'hello']);
+        return $this->vnsprintf(__FILE__, $html, ['{rows}' => 'hello']);
     },
         
     'row' => <<<html

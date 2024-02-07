@@ -16,7 +16,7 @@ final class TemplateEngineTest extends TestCase
     {
         $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
 
-        $result = $templateEngine->setUglify(true)->render('table1.php', function ($render) {
+        $result = $templateEngine->render('table1.php', function ($render) {
             return $render['table']([
                 '{table-class}' => '',
                 '{thead-class}' => '',
@@ -27,7 +27,7 @@ final class TemplateEngineTest extends TestCase
             ]);
         });
 
-        $expectedOutput = '<div class="table-responsive"> <table class="table table-sm "> <thead class=""> <tr><th>column 1</th></tr> </thead> <tbody> <tr><td>datum</td></tr> </tbody> </table> </div>';
+        $expectedOutput = '<div class="table-responsive"><table class="table table-sm "><thead class=""><tr><th>column 1</th></tr></thead><tbody><tr><td>datum</td></tr></tbody></table></div>';
 
         $this->assertEquals($expectedOutput, $result);
     }
@@ -36,13 +36,13 @@ final class TemplateEngineTest extends TestCase
     {
         $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
 
-        $result = $templateEngine->setUglify(true)->render('deeper/table.php', function ($render) {
+        $result = $templateEngine->render('deeper/table.php', function ($render) {
             return $render['table']([
                 '{rows}' => $render['tr'](['{cols}' => $render['td'](['{text}' => 'datum'])]),
             ]);
         });
 
-        $expectedOutput = '%toEscape% <table class="table table-sm"> <tr><td>datum</td></tr> </table>';
+        $expectedOutput = '%toEscape%<table class="table table-sm"><tr><td>datum</td></tr></table>';
 
         $this->assertEquals($expectedOutput, $result);
     }
@@ -51,7 +51,7 @@ final class TemplateEngineTest extends TestCase
     {
         $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
 
-        $result = $templateEngine->setUglify(true)->render('callback/table.php', function ($render) {
+        $result = $templateEngine->render('callback/table.php', function ($render) {
             return $render['deeper']['table']('message for better living');
         });
 
