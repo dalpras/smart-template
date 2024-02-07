@@ -29,8 +29,6 @@ class TemplateEngine
      */ 
     private Closure $attributeRender;
 
-    private bool $uglify = false;
-
     /**
      * Queste sono funzioni anonime associate ad ogni elemento del template per il rendering.
      * Ogni funzione anonima incorpora la parte del template cui si riferisce.
@@ -80,7 +78,7 @@ class TemplateEngine
 
         $namespace = $fileInfo->getRealPath();
         $collection = new RenderCollection(require($namespace));
-        self::convertValuesToClosures($collection, $this->invokeArgs($namespace), $this->uglify);
+        $this->convertValuesToClosures($namespace, $collection);
         $this->renders[$namespace] = $collection;
         return $callback($this->renders[$namespace], $this) ?? '';
     }
@@ -100,18 +98,8 @@ class TemplateEngine
         } else {
             $this->renders[$namespace] = new RenderCollection($templates);
         }
-        self::convertValuesToClosures($this->renders[$namespace], $this->invokeArgs($namespace), $this->uglify);
+        $this->convertValuesToClosures($namespace, $this->renders[$namespace]);
         return $this;
-    }
-
-    /**
-     * Convert values to callback
-     */
-    private static function closure(string $value, callable $invokeArgs): callable
-    {
-        return function(array $args = []) use ($value, $invokeArgs): string {
-            return self::vnsprintf( (string) $value, $args, $invokeArgs);
-        };
     }
 
     /**
@@ -154,29 +142,19 @@ class TemplateEngine
         return implode($separator, array_values($result));
     }
 
-    private static function convertValuesToClosures(RenderCollection &$collection, callable $invokeArgs, bool $uglify = false): void
+    /**
+     * Process the collection by changing the values in callbacks.
+     */
+    private function convertValuesToClosures(string $namespace, RenderCollection &$collection): void
     {
         // recursive walk templates and convert key/value to anonymous functions
-        $collection->walk(function(&$value) use ($invokeArgs, $uglify) {
-            if (($value instanceof Closure) === false) {
-                // converto in stringa
-                $value = (string) $value;
-                // rimuovo commenti e spazi
-                $value = $uglify ? self::toUglify($value) : $value;
-                // converto in closure
-                $value = self::closure($value, $invokeArgs);
-            }
+        $collection->walk(function(&$value) use ($namespace):void {
+            $value = match (gettype($value)) {
+                'string' => fn(array $args = []) => empty($args) ? $value : $this->vnsprintf($namespace, $value, $args),
+                'object' => $value, // in case of "closure" keep the function
+                default  => fn() => $value
+            };
         });
-    }
-
-    private static function toUglify(string $output): string
-    {
-        // Use regular expression to remove PHP single-line and multi-line comments
-        $output = preg_replace("/\/\/.*|\/\*[\s\S]*?\*\//", "", $output);
-        // Use regular expressions to remove blank lines and extra whitespace
-        $output = preg_replace("/^\s+|\s+$/m", "", $output);
-        $output = preg_replace("/\s+/", " ", $output);
-        return $output;
     }
 
     /**
@@ -192,28 +170,19 @@ class TemplateEngine
      * @link http://php.net/manual/en/function.sprintf.php
      * @link http://www.php.net/manual/en/function.vsprintf.php
      */
-    private static function vnsprintf(string $format, array $args, callable $invokeArgs): string
+    private function vnsprintf(string $namespace, string $value, array $args): string
     {
-        $count = count($args);
-        if ($count === 0) {
-            return $format;
-        }
-
         // Generate placeholders without escaping %
-        $replace = array_map(function ($index) {
-            return "%{$index}\$s";
-        }, range(1, $count));
-
-        // Escape % in the format string except for placeholders
-        // $format = preg_replace('/(?<!%)%/', '%%', $format);
+        $replace = array_map(fn($index) => "%{$index}\$s", range(1, count($args)));
 
         // Replace placeholders in the format string
-        $format = str_replace(array_keys($args), $replace, self::escapeSprintf($format));
+        $value = str_replace(array_keys($args), $replace, self::escapeSprintf($value));
 
+        $invokeArgs = $this->invokeArgs($namespace);
         // Apply the callback to each value
-        foreach ($args as &$value) {
-            if ($value instanceof Closure) {
-                $value = $value(...$invokeArgs());
+        foreach ($args as &$arg) {
+            if ($arg instanceof Closure) {
+                $arg = $arg(...$invokeArgs());
             }
         }
 
@@ -221,7 +190,7 @@ class TemplateEngine
         $values = array_combine($replace, $args);
 
         // Use vsprintf with the prepared values
-        return vsprintf($format, $values);
+        return vsprintf($value, $values);
     }
 
     /**
@@ -231,24 +200,6 @@ class TemplateEngine
     {
         return preg_replace('/(?<!%)%/', '%%', $value);
     }
-
-    /**
-     * Get the value of uglify
-     */
-    public function isUglify(): bool
-    {
-        return $this->uglify;
-    }
-
-    /**
-     * Set the value of uglify
-     */
-    public function setUglify(bool $uglify): self
-    {
-        $this->uglify = $uglify;
-        return $this;
-    }
-
 
     /**
      * Set the value of attributeRender
