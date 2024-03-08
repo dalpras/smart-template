@@ -9,7 +9,7 @@ return [
                 {rows}
             </table>
             html;
-        return $this->vnsprintf(__FILE__, $html, ['{rows}' => 'hello']);
+        return $this->vnsprintf($this->invokeArgs('callback/table.php'), $html, ['{rows}' => 'hello']);
     },
         
     'row' => <<<html

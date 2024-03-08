@@ -5,7 +5,10 @@ namespace DalPraS\SmartTemplate;
 use Closure;
 use DalPraS\SmartTemplate\Collection\RenderCollection;
 use DalPraS\SmartTemplate\Exception\TemplateNotFoundException;
-use InvalidArgumentException;
+use DalPraS\SmartTemplate\Plugins\BaseEscaper;
+use DalPraS\SmartTemplate\Plugins\BaseTranslator;
+use DalPraS\SmartTemplate\Plugins\EscaperInterface;
+use DalPraS\SmartTemplate\Plugins\TranslatorInterface;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
@@ -14,20 +17,35 @@ class TemplateEngine
 {
     /**
      * Keep information about the name used for searching a template file and the phisical file name.
-     * 
-     * @var SplFileInfo[]
+     *
+     * @var SplFileInfo[][]
      */
     private array $proxies = [];
 
     /**
-     * Compose the key:value pair using intennal escaping functions
+     * Custom parameters defined for automated parameters substitutions.
+     */
+    private array $customParamCallbacks = [];
+
+    /**
+     * Compose the key:value pair using internal escaping functions
      */
     private Closure $attributeComposer;
 
     /**
      * Render the attribute key:value pair using composer
-     */ 
-    private Closure $attributeRender;
+     */
+    protected Closure $attributeRender;
+
+    /**
+     * Translate the text passed with a custom translator function.
+     */
+    private ?TranslatorInterface $translator = null;
+
+    /**
+     * Escaper used for escaping values.
+     */
+    private ?EscaperInterface $escaper = null;
 
     /**
      * Queste sono funzioni anonime associate ad ogni elemento del template per il rendering.
@@ -43,19 +61,26 @@ class TemplateEngine
     /**
      * Inizializza la directory dove trovare i templates.
      */
-    public function __construct(string $directory = null)
-    {
+    public function __construct(string $directory = null, private ?string $default = null) {
         if ( $directory !== null ) {
-            if ( is_dir($directory) === false ) {
-                throw new InvalidArgumentException('Templates directory is invalid');
+            if ( is_dir($directory) ) {
+                $this->directoryIterator = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS),
+                    RecursiveIteratorIterator::LEAVES_ONLY // Iterate only over files, excluding directories
+                );
             }
-            $this->directoryIterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS),
-                RecursiveIteratorIterator::LEAVES_ONLY // Iterate only over files, excluding directories
-            );
         }
+
         $this->attributeComposer = fn($name, $value) => sprintf('%s="%s"', self::escapeSprintf((string) $name), self::escapeSprintf((string) $value));
-        $this->attributeRender   = fn($name, $value) => ($this->attributeComposer)($name, $value);
+        $this->attributeRender   = function ($name, $value) {
+            // format value by name
+            $value = match ($name) {
+                'id' => $this->escaper->escapeHtmlAttr($this->normalizeid($value)),
+                'title', 'name', 'alt' => $this->escaper->escapeHtmlAttr($value),
+                default => $value
+            };
+            return ($this->attributeComposer)($name, $value);
+        };
     }
 
     /**
@@ -68,28 +93,37 @@ class TemplateEngine
      * Il renderer è invocato con un array di parametri da sostituire nel template e da una stringa $carry che accumula i rendering fino a quel momento svolti dal renderer.
      * I parametri da sostituire possono essere stringhe o callback (che vengono invocate prima della sostituzione).
      */
-    public function render(string $template, Closure $callback): mixed
+    public function render(string $name, Closure $callback): mixed
     {
-        if ( isset($this->renders[$template]) ) {
-            return $callback($this->renders[$template], $this) ?? '';
+        $collection = $this->getRenderCollection($name);
+        if ($collection === null) {
+            // If it is not there, we look for the name in the filesystem
+            if ($this->directoryIterator === null) {
+                throw new TemplateNotFoundException('Template not found because search directory was not set');
+            }
+            $files = $this->find($name);
+            // merge all files in one template
+            foreach ($files as $fileInfo) {
+                $this->addCustom($name, require($fileInfo->getRealPath()));
+            }
+            // try again to fecth the namespace
+            $collection = $this->getRenderCollection($name);
         }
-        // cerchiamo i template nel filesystem
-        $fileInfo = $this->find($template);
-
-        $namespace = $fileInfo->getRealPath();
-        $collection = new RenderCollection(require($namespace));
-        $this->convertValuesToClosures($namespace, $collection);
-        $this->renders[$namespace] = $collection;
-        return $callback($this->renders[$namespace], $this) ?? '';
+        return $callback($collection, $this) ?? '';
     }
 
-    private function invokeArgs(string $namespace): Closure
+    private function invokeArgs(string $namespace): array
     {
-        return fn() => [$this->renders[$namespace], $this];
+        return [$this->renders[$namespace], $this];
+    }
+
+    public function getRenderCollection(string $namespace): ?RenderCollection
+    {
+        return $this->renders[$namespace] ?? null;
     }
 
     /**
-     * Add a template directly not fetched from file
+     * Add a custom template without scanning directories
      */
     public function addCustom(string $namespace, array $templates): self
     {
@@ -103,38 +137,43 @@ class TemplateEngine
     }
 
     /**
-     * Associa a tutte le chiavi che sono chiamate il riferimento fisico su filesystem oppure null.
+     * The template returns the SplFileInfo with the name or with the partial path indicated found in the filesystem.
+     *
+     * @return SplFileInfo[]
      */
-    private function find(string $name): SplFileInfo
+    private function find(string $name): array
     {
-        // if not setted, search in filesystem
+        // if the name of the RenderCollection was not setted, search in filesystem
         if ( isset($this->proxies[$name]) === false ) {
-            if ($this->directoryIterator !== null) {
+            // if its provided a real path that is a valida filepath, it's founded
+            $realpath = realpath($name);
+            if ( $realpath !== false && is_file($realpath) ) {
+                $this->proxies[$name][] = new SplFileInfo($realpath);
+            } elseif ($this->directoryIterator !== null) {
+                // otherwise add all files with relative path into the specified folder
                 /** @var \SplFileInfo $fileInfo */
                 foreach ($this->directoryIterator as $fileInfo) {
                     if ($fileInfo->isFile() === false) continue;
-                    // search for file
+                    // search for all files
                     if ( preg_match('~' . preg_quote($name, '~') . '$~', $fileInfo->getRealPath(), $matches) ) {
-                        $found = $fileInfo;
-                        break;
+                        $this->proxies[$name][] = $fileInfo;
                     }
                 }
             }
-            $this->proxies[$name] = $found ?? throw new TemplateNotFoundException("Could not find template in templates folder");
         }
-        return $this->proxies[$name];
+        return $this->proxies[$name] ?? throw new TemplateNotFoundException("Could not find template {$name} in templates folder.");
     }
 
     /**
      * Apply the callback to each value of array attribs.
      * At each loop, the final result is added to previos one.
-     * 
+     *
      * This function can be used inside templates as follow: self::attributes(['class' => 'world'])
      */
     public function attributes(array $attribs, bool $clean = true, string $separator = ' '): string
     {
         // remove empty values
-        $filtered = $clean ? array_filter($attribs, fn($value) => $value !== null || $value !== "") : $attribs;
+        $filtered = $clean ? array_filter($attribs, fn($value) => ($value !== null) || ($value !== "") ) : $attribs;
         $result = [];
         foreach ($filtered as $name => $value) {
             $result[$name] = ($this->attributeRender)($name, $value);
@@ -148,9 +187,10 @@ class TemplateEngine
     private function convertValuesToClosures(string $namespace, RenderCollection &$collection): void
     {
         // recursive walk templates and convert key/value to anonymous functions
-        $collection->walk(function(&$value) use ($namespace):void {
+        $invokeArgs = $this->invokeArgs($namespace);
+        $collection->walk(function(&$value) use ($invokeArgs):void {
             $value = match (gettype($value)) {
-                'string' => fn(array $args = []) => empty($args) ? $value : $this->vnsprintf($namespace, $value, $args),
+                'string' => fn(array $args = []) => $this->vnsprintf($invokeArgs, $value, $args),
                 'object' => $value, // in case of "closure" keep the function
                 default  => fn() => $value
             };
@@ -170,21 +210,30 @@ class TemplateEngine
      * @link http://php.net/manual/en/function.sprintf.php
      * @link http://www.php.net/manual/en/function.vsprintf.php
      */
-    private function vnsprintf(string $namespace, string $value, array $args): string
+    private function vnsprintf(array $invokeArgs, string $value, array $args): string
     {
-        // Generate placeholders without escaping %
-        $replace = array_map(fn($index) => "%{$index}\$s", range(1, count($args)));
-
-        // Replace placeholders in the format string
-        $value = str_replace(array_keys($args), $replace, self::escapeSprintf($value));
-
-        $invokeArgs = $this->invokeArgs($namespace);
         // Apply the callback to each value
-        foreach ($args as &$arg) {
+        foreach ($args as $tag => &$arg) {
             if ($arg instanceof Closure) {
-                $arg = $arg(...$invokeArgs());
+                $arg = $arg(...$invokeArgs);
+            }
+            if (array_key_exists($tag, $this->customParamCallbacks)) {
+                $arg = $this->customParamCallbacks[$tag]($arg);
             }
         }
+        // Add the callabacks of the remaining custom tags
+        foreach (array_diff_key($this->customParamCallbacks, $args) as $key => $customCallback) {
+            $args[$key] = $customCallback(null);
+        }
+
+        // Generate placeholders without escaping %
+        $replace = [];
+        for ($i = 1; $i <= count($args); $i++) {
+            $replace[] = "%{$i}\$s";
+        }
+
+        // Replace placeholders in the format string
+        $value = str_replace(array_keys($args), $replace, self::escapeSprintf($value));        
 
         // Combine placeholders with corresponding values
         $values = array_combine($replace, $args);
@@ -201,29 +250,90 @@ class TemplateEngine
         return preg_replace('/(?<!%)%/', '%%', $value);
     }
 
-    /**
-     * Set the value of attributeRender
-     */
     public function setAttributeRender(Closure $attributeRender): self
     {
         $this->attributeRender = $attributeRender;
         return $this;
     }
 
-    /**
-     * Set the value of attributeComposer
-     */
     public function setAttributeComposer(Closure $attributeComposer): self
     {
         $this->attributeComposer = $attributeComposer;
         return $this;
     }
 
-    /**
-     * Get the value of attributeComposer
-     */
     public function getAttributeComposer(): Closure
     {
         return $this->attributeComposer;
+    }
+
+    /**
+     * Translate text using the callback tranlator function
+     */
+    public function trans(...$params): string
+    {
+        return $this->translator->trans(...$params);
+    }
+
+    /**
+     * Normalizer function for "id" attribute in html Context
+     */
+    public function normalizeid(string $value): string
+    {
+        return trim(strtr($value, ['[' => '-', ']' => '']), '-');
+    }
+
+    public function getEscaper(): EscaperInterface
+    {
+        if ($this->escaper === null) {
+            $this->escaper = new BaseEscaper();
+        }
+        return $this->escaper;
+    }
+
+    public function setEscaper(EscaperInterface $escaper): self
+    {
+        $this->escaper = $escaper;
+        return $this;
+    }
+
+    public function getTranslator(): TranslatorInterface
+    {
+
+        if ($this->translator === null) {
+            $this->translator = new BaseTranslator();
+        }
+        return $this->translator;
+    }
+
+    public function setTranslator(TranslatorInterface $translator): self
+    {
+        $this->translator = $translator;
+        return $this;
+    }
+
+    public function addCustomParamCallback(string $name, Closure $callback): self
+    {
+        $this->customParamCallbacks[$name] = $callback;
+        return $this;
+    }
+
+    public function removeCustomParamCallback(string $name): bool
+    {
+        if (isset($this->customParamCallbacks[$name])) {
+            unset($this->customParamCallbacks[$name]);
+            return true;
+        }
+        return false;
+    }
+
+    public function getCustomParamCallbacks(): array
+    {
+        return $this->customParamCallbacks;
+    }
+
+    public function getDefault(): ?string
+    {
+        return $this->default;
     }
 }

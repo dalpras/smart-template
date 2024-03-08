@@ -7,6 +7,9 @@ use Countable;
 use IteratorAggregate;
 use Traversable;
 
+/**
+ * This class allows you to capture and navigate an array of data within templates.
+ */
 class RenderCollection implements Countable, IteratorAggregate, ArrayAccess
 {
 
@@ -44,6 +47,10 @@ class RenderCollection implements Countable, IteratorAggregate, ArrayAccess
         yield from $this->items;
     }
 
+    /**
+     * Applies a callback function to each element of the inner array to alter its value.
+     * The callback function must refer to the value as a reference (&$value).
+     */
     public function walk(callable $callback = null): bool
     {
         return array_walk_recursive($this->items, $callback);
@@ -57,5 +64,18 @@ class RenderCollection implements Countable, IteratorAggregate, ArrayAccess
     public function toArray(): array
     {
         return $this->items;
+    }
+
+    /**
+     * It loops through arrays by automatically resolving any callbacks that are present by passing the same parameters.
+     */
+    public function resolve(array $params = []): array
+    {
+        $this->walk(function(&$value) use ($params) {
+            if (is_callable($value)) {
+                $value = $value($params);
+            }
+        });
+        return $this->toArray();
     }
 }

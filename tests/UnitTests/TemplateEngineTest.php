@@ -78,7 +78,7 @@ final class TemplateEngineTest extends TestCase
     public function testRenderCustomCallback()
     {
         $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
-        
+
         $result = $templateEngine->render('callback/table.php', fn($render) => $render['table']('hi', ['first col', 'second col']));
 
         $expectedOutput = <<<html
@@ -88,16 +88,41 @@ final class TemplateEngineTest extends TestCase
         </table>
         html;
 
-        $this->assertEquals($expectedOutput, $result);        
+        $this->assertEquals($expectedOutput, $result);
     }
 
-    public function testTemplateNotFoundException() 
+    public function testTemplateNotFoundException()
     {
         $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
         $this->expectException(TemplateNotFoundException::class);
         $result = $templateEngine->render('callback/table-not-present.php', fn($render) => $render['table']('hi', ['first col', 'second col']));
     }
 
+    public function testTemplateAttributes()
+    {
+        $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
+        $result = $templateEngine->render('attributes/table1.php', fn($render) => $render['test'](['{attribs}' => $templateEngine->attributes(['class' => 'hello'])]));
+
+        $expectedOutput = <<<html
+            <div class="hello"></div>
+            html;
+
+        $this->assertEquals($expectedOutput, $result);
+    }
+
+    public function testCustomParamCallback()
+    {
+        $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
+        $templateEngine->addCustomParamCallback('{attribs}', function($param) use ($templateEngine) {
+            return ($param === null) ? '' : $templateEngine->attributes($param);
+        });
+        $result1 = $templateEngine->render('attributes/table1.php', fn($render) => $render['test'](['{attribs}' => ['class' => 'hello']]));
+        $result2 = $templateEngine->render('attributes/table1.php', fn($render) => $render['test']());
+
+        $this->assertEquals('<div class="hello"></div>', $result1);
+        $this->assertEquals('<div ></div>', $result2);
+
+    }
 
     /**
      * In future perhaps array will support enums as keys.
@@ -105,6 +130,7 @@ final class TemplateEngineTest extends TestCase
     public function testEnumAsTemplateKey()
     {
         $templateEngine = new TemplateEngine(self::TEMPLATE_DIR);
+        // $this->expectException(TypeError::class);
         $this->expectException(TypeError::class);
         $result = $templateEngine->render('enumkeys.php', fn($render) => $render[Status::ON](['{message}' => 'give a try!']));
     }
