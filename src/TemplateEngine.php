@@ -69,7 +69,7 @@ class TemplateEngine
                     new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS),
                     RecursiveIteratorIterator::LEAVES_ONLY // Iterate only over files, excluding directories
                 );
-                if ($preload) {
+                if ($preload && $default !== null) {
                     $files = $this->find($default);
                     // merge all files in one template
                     foreach ($files as $fileInfo) {
