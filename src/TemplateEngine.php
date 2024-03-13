@@ -12,6 +12,7 @@ use DalPraS\SmartTemplate\Plugins\TranslatorInterface;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
+use Throwable;
 
 class TemplateEngine
 {
@@ -61,13 +62,20 @@ class TemplateEngine
     /**
      * Inizializza la directory dove trovare i templates.
      */
-    public function __construct(string $directory = null, private ?string $default = null) {
+    public function __construct(string $directory = null, private ?string $default = null, bool $preload = true) {
         if ( $directory !== null ) {
             if ( is_dir($directory) ) {
                 $this->directoryIterator = new RecursiveIteratorIterator(
                     new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS),
                     RecursiveIteratorIterator::LEAVES_ONLY // Iterate only over files, excluding directories
                 );
+                if ($preload) {
+                    $files = $this->find($default);
+                    // merge all files in one template
+                    foreach ($files as $fileInfo) {
+                        $this->addCustom($default, require($fileInfo->getRealPath()));
+                    }
+                }
             }
         }
 
@@ -109,7 +117,11 @@ class TemplateEngine
             // try again to fecth the namespace
             $collection = $this->getRenderCollection($name);
         }
-        return $callback($collection, $this) ?? '';
+        try {
+            return $callback($collection, $this) ?? '';
+        } catch (Throwable $th) {
+            throw $th;
+        }
     }
 
     private function invokeArgs(string $namespace): array
