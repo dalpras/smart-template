@@ -134,6 +134,11 @@ class TemplateEngine
         return $this->renders[$namespace] ?? null;
     }
 
+    public function getDefaultRender(): ?RenderCollection
+    {
+        return $this->renders[$this->default] ?? null;
+    }
+
     /**
      * Add a custom template without scanning directories
      */
