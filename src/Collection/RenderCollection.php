@@ -3,6 +3,7 @@
 namespace DalPraS\SmartTemplate\Collection;
 
 use ArrayAccess;
+use Closure;
 use Countable;
 use IteratorAggregate;
 use Traversable;
@@ -72,7 +73,7 @@ class RenderCollection implements Countable, IteratorAggregate, ArrayAccess
     public function resolve(array $params = []): array
     {
         $this->walk(function(&$value) use ($params) {
-            if (is_callable($value)) {
+            if ($value instanceof Closure) {
                 $value = $value($params);
             }
         });
