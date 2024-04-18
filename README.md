@@ -3,71 +3,123 @@ Smart Template
 
 ## Introduction
 
-Tired of template engines that create new languages that transpile to PHP and need custom service injectings or other tricks?  
-Well PHP 8 have the potential for building an engine based on callbacks lightning fast.  
-Just PHP! with a builtin tag replacing system and rendering functions in a very small code.  
-The class `TemplateEngine` is a part of the smart-template library, designed for efficient template rendering, it's the core of the system.   
-It allows you to manage templates stored in a directory that mute to callbacks rendering functions with placeholders.  
-Additionally, you can customize attribute rendering for HTML elements to suit your specific needs.  
+Stop using **template engines** with new languages and new tricks to learn!  
+This is the right place: `smart-template` have the potential for building an **engine** based on callbacks that is lightning fast.  
+
+This is a full rendering system in a few lines of code.  
+`smart-template` library is designed for **fast** and **efficient** rendering without the **mess** of complicated libraries.   
+
+**There are no dependencies!!**  
+
+You will only use what you really need.  
 
 ## Features
 
-- Render templates by replacing placeholders with values.
-- Support for template parts and nested rendering.
-- Customize attribute rendering for HTML elements.
-- Manage templates stored in a directory or add custom templates.
-- Create custom callabacks that can work with your callbacks.
+- key->value substitutions.
+- Nested templates files in a structered folders to access anything you need.
+- Deep nested rendering.
+- Customized attributes rendering for HTML elements.
+- Callbacks for customized rendering.
+- ...
 
 ## Installation
 
 As usual, composer make the job for you:
 
 ```bash
-
 composer require dalpras/smart-template
-
 ```
 
-## Constructor
+## Examples
+Let's take a look to an example ...  
+Just some lines of code in different files.  
 
-The constructor takes a directory path as an argument and initializes the $directoryIterator to iterate through the files in that directory.
+```php
 
-## Methods
+/** ./mywebpage.php */
+$templateEngine = new TemplateEngine(__DIR__ . '/templates');
 
-### render()
+echo $templateEngine->render('table.php', function ($render) {
+        return $render['table']([
+            '{class}' => 'text-right',
+            '{cols}' => $render['row'](['{text}' => 'hello datum!'])
+        ]);
+    });
 
-This method is used to render a specific template part.  
-It takes the name of the template part and a callback function as arguments.  
-If the template has not been fetched yet, it uses the fetch() method to load the template from the directory and store it in the `$renders` array.  
-The callback function is then invoked with the template's rendering function and the TemplateEngine instance as arguments. The callback is expected to provide an array of parameters to be replaced in the template.
-The method returns the rendered template.
+// or you can begin to nest everything you need
+
+echo $templateEngine->render('table.php', function ($render) {
+        return $render['table']([
+            '{class}' => 'text-right',
+            '{rows}' => function($render) {
+                return $render['row'](['{text}' => 'hello nested!']);
+            },
+        ]);
+    });
 
 
-### addCustom()
+// or just use another file for rendering
 
-This method allows adding a custom template directly without fetching it from a file.
-It takes a namespace and an array of templates as arguments.
-If a renderer for the specified namespace already exists, it merges the new templates into the existing renderer. Otherwise, it creates a new renderer.
-The templates' values are converted to closures using the convertValuesToClosures() method.
+echo $templateEngine->render('toolbar.php', function ($render) {
+        return $render['header']([
+            '{text}' => 'hello toolbar!'
+        ]);
+    });
 
-### toClosure()
+// also you can use many files as you want
 
-This method is used to convert a template value to a closure (anonymous function) that can be invoked with arguments to render the template.
+echo $templateEngine->render('table.php', function ($render) {
+        return $render['table']([
+            '{class}' => 'text-right',
+            '{rows}' => function($render, TemplateEngine $template) {
+                return $template->render('toolbar.php', fn($render) => $render['header']([
+                    '{text}' => 'hello different template toolbar'
+                ]));
+            },
+        ]);
+    });
 
-### fetch()
+// or custom specific functions for rendering
 
-This method is used to load a template from the directory based on its name.
-It uses a regular expression to match the template's filename and loads the template from the corresponding file.
-The loaded template is returned as a `RenderCollection object`, which is a custom collection class.
+echo $templateEngine->render('table.php', function ($render) {
+        return $render['table']([
+            '{class}' => 'text-right',
+            '{rows}' => $render['myfunc']('hello func!'),
+        ]);
+    });
 
-### convertValuesToClosures()
 
-This method recursively walks through the templates and converts their values to closures using the toClosure() method.
+// GREAT POWER INVOLVES GREAT RESPONSIBILITY!
+```
 
-### vnsprintf()
 
-This method is a custom implementation of a named-param vsprintf().
-It takes a format string, an array of arguments, and a callback function as arguments.
-It replaces placeholders in the format string with corresponding values from the arguments array.
-If an argument is a closure, it is invoked using the provided callback function before being replaced in the format string.
+```php
+/** ./templates/table.php */
+return [
+    'table' => <<<html
+        <div class="table-responsive">
+            <table class="table table-sm {class}">
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
+        </div>
+        html,
 
+    'row' => <<<html
+        <tr><td>{text}</tr></td>
+        html,
+];
+```
+
+
+```php
+/** ./templates/nesteddir/toolbar.php */
+return [
+    'header' => <<<html
+        <div class="toolbar">{text}</div>
+        html,
+        
+    'myfunc' => fn($text) => 'This is your ' . $text
+];
+```
