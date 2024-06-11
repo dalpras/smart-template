@@ -78,8 +78,7 @@ class TemplateEngine
                 }
             }
         }
-
-        $this->attributeComposer = fn($name, $value) => sprintf('%s="%s"', self::escapeSprintf((string) $name), self::escapeSprintf((string) $value));
+        $this->attributeComposer = fn($name, $value) => $name . '="' . str_replace('"', '&quot;', (string) $value) . '"';
         $this->attributeRender   = function ($name, $value) {
             // format value by name
             $value = match ($name) {
