@@ -2,7 +2,11 @@
 
 namespace DalPraS\SmartTemplate\Plugins;
 
-interface TranslatorInterface
+use Laminas\Translator\TranslatorInterface as LaminasTranslatorInterface;
+use Laminas\Validator\Translator\TranslatorInterface as LaminasOldTranslatorInterface;
+use Symfony\Contracts\Translation\TranslatorInterface as SymfonyTranslatorInterface;
+
+interface TranslatorInterface extends LaminasTranslatorInterface, SymfonyTranslatorInterface, LaminasOldTranslatorInterface
 {
-    public function trans(?string $id, array $parameters = [], ?string $domain = null, ?string $locale = null): string;
+    
 }

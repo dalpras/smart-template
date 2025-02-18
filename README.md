@@ -41,7 +41,7 @@ $templateEngine = new TemplateEngine(__DIR__ . '/templates');
 
 echo $templateEngine->render('table.php', function ($render) {
         return $render['table']([
-            '{class}' => 'text-right',
+            '{class}' => 'text-end',
             '{cols}' => $render['row'](['{text}' => 'hello datum!'])
         ]);
     });
@@ -50,7 +50,7 @@ echo $templateEngine->render('table.php', function ($render) {
 
 echo $templateEngine->render('table.php', function ($render) {
         return $render['table']([
-            '{class}' => 'text-right',
+            '{class}' => 'text-end',
             '{rows}' => function($render) {
                 return $render['row'](['{text}' => 'hello nested!']);
             },
@@ -70,7 +70,7 @@ echo $templateEngine->render('toolbar.php', function ($render) {
 
 echo $templateEngine->render('table.php', function ($render) {
         return $render['table']([
-            '{class}' => 'text-right',
+            '{class}' => 'text-end',
             '{rows}' => function($render, TemplateEngine $template) {
                 return $template->render('toolbar.php', fn($render) => $render['header']([
                     '{text}' => 'hello different template toolbar'
@@ -83,7 +83,7 @@ echo $templateEngine->render('table.php', function ($render) {
 
 echo $templateEngine->render('table.php', function ($render) {
         return $render['table']([
-            '{class}' => 'text-right',
+            '{class}' => 'text-end',
             '{rows}' => $render['myfunc']('hello func!'),
         ]);
     });
