@@ -182,16 +182,12 @@ class TemplateEngine
     /**
      * Generate HTML attributes from an array of name => value.
      */
-    public function attributes(array $attribs, bool $clean = true): string
+    public function attributes(array $attribs): string
     {
         $result = [];
         foreach ($attribs as $name => $value) {
             if ($value instanceof Closure) {
                 $value = $value();
-            }
-            // Remove empty values if $clean is true
-            if ($clean && ($value === null || $value === '')) {
-                continue;
             }
             $result[$name] = ($this->attributeRender)($name, $value);
         }
