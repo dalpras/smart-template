@@ -9,9 +9,6 @@ class RenderCollection extends ArrayObject
 {
     public function __construct(array $items = [])
     {
-        // Initialize the parent ArrayObject. 
-        // Optionally pass flags or an iterator class, e.g.:
-        // parent::__construct($items, ArrayObject::ARRAY_AS_PROPS, "ArrayIterator");
         parent::__construct($items);
     }
     
