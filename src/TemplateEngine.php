@@ -101,7 +101,15 @@ class TemplateEngine
      */
     public function render(string $name, Closure $callback): mixed
     {
-        $collection = $this->getRenderCollection($name);
+        $collection = $this->getCollection($name);
+
+        // Execute user callback
+        return $callback($collection, $this, $name) ?? '';
+    }
+
+    public function getCollection(string $name): ?RenderCollection
+    {
+        $collection = $this->renders[$name] ?? null;
         if ($collection === null) {
             if ($this->directoryIterator === null) {
                 throw new TemplateNotFoundException(
@@ -115,7 +123,7 @@ class TemplateEngine
                 $this->addCustom($name, require $fileInfo->getRealPath());
             }
             // Fetch again now that it’s loaded
-            $collection = $this->getRenderCollection($name);
+            $collection = $this->renders[$name] ?? null;;
         }
 
         // If still null, it means not found
@@ -123,13 +131,7 @@ class TemplateEngine
             throw new TemplateNotFoundException("Template not found: $name");
         }
 
-        // Execute user callback
-        return $callback($collection, $this, $name) ?? '';
-    }
-
-    public function getRenderCollection(string $namespace): ?RenderCollection
-    {
-        return $this->renders[$namespace] ?? null;
+        return $collection;
     }
 
     /**
