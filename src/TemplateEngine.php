@@ -56,6 +56,12 @@ class TemplateEngine
      */
     private ?RecursiveIteratorIterator $directoryIterator = null;
 
+    /** @var array<string, SplFileInfo[]> */
+    private array $indexByBasename = [];
+    
+    /** @var bool */
+    private bool $fsIndexed = false;
+
     /**
      * @param string|null $directory  Base directory for scanning templates.
      * @param string|null $default    Default template name to preload.
@@ -87,7 +93,8 @@ class TemplateEngine
         $this->attributeRender = function ($name, $value) {
             // Format value by attribute name
             $value = match ($name) {
-                'id'    => $this->helpers?->escaper()?->escapeHtmlAttr($this->normalizeid($value)) ?? $value,
+                'id'
+                    => ($this->helpers?->escaper()?->escapeHtmlAttr($this->normalizeId((string)$value))) ?? (string)$value,
                 'title', 'name', 'alt'
                        => $this->helpers?->escaper()?->escapeHtmlAttr($value) ?? $value,
                 default => $value
@@ -123,7 +130,7 @@ class TemplateEngine
                 $this->addCustom($name, require $fileInfo->getRealPath());
             }
             // Fetch again now that it’s loaded
-            $collection = $this->renders[$name] ?? null;;
+            $collection = $this->renders[$name] ?? null;
         }
 
         // If still null, it means not found
@@ -150,26 +157,30 @@ class TemplateEngine
 
     /**
      * Find the template by name or partial path in the filesystem.
-     *
-     * @return SplFileInfo[]
      */
     private function find(string $name): array
     {
         if (!isset($this->proxies[$name])) {
             $realpath = realpath($name);
-            // If $name is a direct file path
             if ($realpath && is_file($realpath)) {
                 $this->proxies[$name][] = new SplFileInfo($realpath);
             } elseif ($this->directoryIterator !== null) {
-                /** @var SplFileInfo $fileInfo */
-                foreach ($this->directoryIterator as $fileInfo) {
-                    if (!$fileInfo->isFile()) {
-                        continue;
-                    }
-                    // Search by partial path
-                    $pattern = '~' . preg_quote(DIRECTORY_SEPARATOR . $name, '~') . '$~';
-                    if (preg_match($pattern, $fileInfo->getRealPath())) {
-                        $this->proxies[$name][] = $fileInfo;
+                $this->buildFsIndex();
+
+                // Normalize separator in $name and extract trailing basename
+                $needle = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $name);
+                $basename = basename($needle);
+
+                // Candidate set from basename index, then filter by exact suffix match
+                if (!empty($this->indexByBasename[$basename])) {
+                    $suffix = DIRECTORY_SEPARATOR . $needle;
+                    $len = strlen($suffix);
+                    foreach ($this->indexByBasename[$basename] as $fi) {
+                        $path = $fi->getRealPath();
+                        // fast "endsWith" check
+                        if (strlen($path) >= $len && substr_compare($path, $suffix, -$len) === 0) {
+                            $this->proxies[$name][] = $fi;
+                        }
                     }
                 }
             }
@@ -181,30 +192,49 @@ class TemplateEngine
         return $this->proxies[$name];
     }
 
+    private function buildFsIndex(): void
+    {
+        if ($this->fsIndexed || $this->directoryIterator === null) {
+            return;
+        }
+        /** @var SplFileInfo $fileInfo */
+        foreach ($this->directoryIterator as $fileInfo) {
+            if (!$fileInfo->isFile()) continue;
+            $base = $fileInfo->getBasename();               // ex: "card.php"
+            $this->indexByBasename[$base][] = $fileInfo;
+        }
+        $this->fsIndexed = true;
+    }
+
     /**
      * Generate HTML attributes from an array of name => value.
      */
     public function attributes(array $attribs): string
     {
-        $result = [];
+        if (empty($attribs)) {
+            return '';
+        }
+        $render = $this->attributeRender; // local var is faster than property access
+        $out = [];
         foreach ($attribs as $name => $value) {
             if ($value instanceof Closure) {
-                $value = $value();
+                $value = $value(); // consider passing context if you want parity
             }
-            $result[$name] = ($this->attributeRender)($name, $value);
+            $out[] = $render($name, $value);
         }
-        return implode(' ', $result);
+        return implode(' ', $out);
     }
 
     /**
-     * Convert string values into closure-based "renders".
+     * Convert a single value into a render callable without registering it.
      */
-    private function convertValuesToClosures(string $namespace, RenderCollection $collection): void
+    protected function asRender(mixed $value, string $namespace, RenderCollection $collection): Closure
     {
         $invokeArgs = [$collection, $this, $namespace];
-        $collection->walk(function (&$value) use ($invokeArgs) {
-            $value = match (gettype($value)) {
-                'string' => fn(array $args = []) => self::vnsprintf(
+
+        if (is_string($value)) {
+            return function (array $args = []) use ($invokeArgs, $value) {
+                return self::vnsprintf(
                     $invokeArgs,
                     $value,
                     $args,
@@ -215,16 +245,54 @@ class TemplateEngine
                                 $arg = $this->customParamCallbacks[$tag]($arg);
                             }
                         }
+                        unset($arg);
                         // For callbacks not in $args, assign them null
                         foreach (array_diff_key($this->customParamCallbacks, $args) as $k => $cb) {
                             $args[$k] = $cb(null);
                         }
                         return $args;
                     }
-                ),
-                'object' => $value, // e.g. existing Closure or object
-                default  => fn() => $value
+                );
             };
+        }
+        if (is_object($value) && is_callable($value)) {
+            return $value;
+        }
+        return fn() => $value;
+    }
+
+    /**
+     * Public helper: compile a single template item into a callable without storing it.
+     * Unlike addCustom(), this does not register the result in $renders
+     */
+    public function makeRender(mixed $value, ?string $namespace = null): callable
+    {
+        // Ephemeral collection gives the closure its usual context
+        $collection = new RenderCollection([]);
+        $ns = $namespace ?? '__inline_item_' . spl_object_id($collection);
+        return $this->asRender($value, $ns, $collection);
+    }
+
+    /**
+     * Public helper: compile an array of template items into a RenderCollection
+     * without merging into $this->renders.
+     * Unlike addCustom(), this does not register the result in $renders.
+     */
+    public function makeRenderCollection(array $templates, ?string $namespace = null): RenderCollection
+    {
+        $collection = new RenderCollection($templates);
+        $ns = $namespace ?? '__inline_' . spl_object_id($collection);
+
+        // Reuse existing batch conversion, but don’t store anywhere.
+        $this->convertValuesToClosures($ns, $collection);
+        return $collection;
+    }
+
+    // --- adjust existing method to use asRender() internally ---
+    private function convertValuesToClosures(string $namespace, RenderCollection $collection): void
+    {
+        $collection->walk(function (&$value) use ($namespace, $collection) {
+            $value = $this->asRender($value, $namespace, $collection);
         });
     }
 
@@ -237,31 +305,36 @@ class TemplateEngine
         array $args,
         ?Closure $resolve = null
     ): string {
-        // Resolve argument closures
+        // Resolve closures in args
         foreach ($args as &$arg) {
             if ($arg instanceof Closure) {
                 $arg = $arg(...$invokeArgs);
             }
         }
-        // Additional argument resolution if provided
+        unset($arg);
+
         if ($resolve !== null) {
             $args = $resolve($args);
         }
 
-        // Prepare placeholders
+        // Prepare placeholders "%1$s", "%2$s", ...
         $replace = [];
-        for ($i = 1; $i <= count($args); $i++) {
-            $replace[] = "%{$i}\$s";
+        $i = 1;
+        $orderedValues = [];
+        // Keep the insertion order of $args stable & build both arrays in one pass
+        foreach ($args as $k => $v) {
+            $replace[$k] = "%" . $i++ . "\$s";
+            $orderedValues[] = (string) $v;
         }
 
-        // Replace named placeholders with indexed placeholders
-        $value = str_replace(array_keys($args), $replace, self::escapeSprintf($value));
+        // Replace named with indexed, escaping raw '%' in the template
+        $escaped = self::escapeSprintf($value);
+        // strtr is faster and does longest-key-first automatically
+        $indexed = strtr($escaped, $replace);
 
-        // Combine placeholders with corresponding values
-        $values = array_combine($replace, $args);
-
-        return vsprintf($value, $values);
+        return vsprintf($indexed, $orderedValues);
     }
+
 
     /**
      * Escape raw '%' in a format string to '%%' (so vsprintf won't interpret them).
@@ -297,7 +370,7 @@ class TemplateEngine
     /**
      * Convert bracket-based arrays in 'id' attributes into dash-based (HTML-friendly).
      */
-    public function normalizeid(string $value): string
+    public function normalizeId(string $value): string
     {
         return trim(strtr($value, ['[' => '-', ']' => '']), '-');
     }
