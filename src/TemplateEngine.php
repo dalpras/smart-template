@@ -297,13 +297,16 @@ class TemplateEngine
     }
 
     /**
-     * Named-Param vsprintf() that calls any closures before substitution.
+     * Named-Param vsprintf() that calls any closures before substitution,
+     * and supports objects via a pluggable $stringify closure.
      */
     public static function vnsprintf(
         array $invokeArgs,
         string $value,
         array $args,
-        ?Closure $resolve = null
+        ?Closure $resolve = null,
+        ?Closure $stringify = null,           // <— NEW: per-value stringifier
+        array $options = []                   // e.g. ['date_format' => DATE_ATOM]
     ): string {
         // Resolve closures in args
         foreach ($args as &$arg) {
@@ -313,28 +316,92 @@ class TemplateEngine
         }
         unset($arg);
 
+        // Optional argument post-processing
         if ($resolve !== null) {
             $args = $resolve($args);
         }
 
-        // Prepare placeholders "%1$s", "%2$s", ...
+        // Placeholder mapping (named → indexed)
         $replace = [];
         $i = 1;
         $orderedValues = [];
-        // Keep the insertion order of $args stable & build both arrays in one pass
+
+        $stringify ??= fn($v, $key) => self::defaultStringify($v, $key, $options);
+
         foreach ($args as $k => $v) {
             $replace[$k] = "%" . $i++ . "\$s";
-            $orderedValues[] = (string) $v;
+            // Convert ANY value (scalars, arrays, objects…) to a string once, here
+            $orderedValues[] = $stringify($v, $k);
         }
 
-        // Replace named with indexed, escaping raw '%' in the template
-        $escaped = self::escapeSprintf($value);
-        // strtr is faster and does longest-key-first automatically
-        $indexed = strtr($escaped, $replace);
+        $escaped  = self::escapeSprintf($value);   // your existing percent-escaper
+        $indexed  = strtr($escaped, $replace);
 
         return vsprintf($indexed, $orderedValues);
     }
 
+    /**
+     * Sensible defaults for turning values into strings for %s.
+     * You can override per-call via the $stringify closure.
+     */
+    private static function defaultStringify(mixed $v, string|int $key, array $options): string
+    {
+        // Fast-path scalars
+        if (is_string($v)) return $v;
+        if (is_int($v) || is_float($v)) return (string) $v;
+        if (is_bool($v)) return $v ? '1' : '0';
+        if ($v === null) return '';
+
+        // Datetime
+        if ($v instanceof \DateTimeInterface) {
+            $fmt = $options['date_format'] ?? \DATE_ATOM;
+            return $v->format($fmt);
+        }
+
+        // Enums
+        if ($v instanceof \BackedEnum) {
+            return (string)$v->value;
+        }
+        if ($v instanceof \UnitEnum) {
+            return $v->name;
+        }
+
+        // Stringable / __toString
+        if ($v instanceof \Stringable) {
+            return (string)$v;
+        }
+        if (is_object($v) && method_exists($v, '__toString')) {
+            return (string)$v;
+        }
+
+        // Json-serializable / arrays / traversables → compact JSON
+        if ($v instanceof \JsonSerializable) {
+            return self::json($v->jsonSerialize());
+        }
+        if ($v instanceof \Traversable) {
+            return self::json(iterator_to_array($v));
+        }
+        if (is_array($v)) {
+            return self::json($v);
+        }
+        if (is_object($v)) {
+            // Best-effort: public props only
+            return self::json(get_object_vars($v));
+        }
+
+        // Fallback
+        return (string)$v;
+    }
+
+    private static function json(mixed $v): string
+    {
+        $json = json_encode($v, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false) {
+            // Last-resort dump if JSON fails
+            return var_export($v, true);
+        }
+        return $json;
+    }
 
     /**
      * Escape raw '%' in a format string to '%%' (so vsprintf won't interpret them).
