@@ -212,6 +212,108 @@ Use responsibly.
 
 ------------------------------------------------------------------------
 
+## ⚖ Performance Comparison vs Twig
+
+Twig is a mature, feature-rich templating engine. It parses a custom
+template language, compiles templates into PHP classes, and relies on an
+internal cache for production performance.
+
+**Smart Template takes a fundamentally different approach.**
+
+Instead of parsing a template language, it uses:
+
+-   Native PHP arrays
+-   Lazy closures
+-   Direct `strtr()` placeholder replacement
+-   Zero parsing layer
+-   Zero runtime compilation
+
+------------------------------------------------------------------------
+
+### 🚀 When Smart Template Can Be Faster
+
+Smart Template typically performs very well in scenarios such as:
+
+-   Rendering **many small components** inside loops (hundreds or
+    thousands)
+-   Component-style UI systems
+-   Data-driven rendering without complex template logic
+-   Situations where minimal per-call overhead matters
+
+Why?
+
+Because the hot path is essentially:
+
+``` php
+strtr($template, $args);
+```
+
+No AST.\
+No expression engine.\
+No runtime parser.\
+No template inheritance resolution.
+
+This makes it extremely lightweight for high-frequency rendering.
+
+------------------------------------------------------------------------
+
+### 🧠 When Twig Can Be Better
+
+Twig may be a better choice when:
+
+-   You need **template inheritance**
+-   You rely heavily on **filters, macros, blocks**
+-   Templates contain significant logic (loops, conditions, expressions)
+-   You want strict, automatic escaping behavior
+-   You need a large ecosystem and long-term stability guarantees
+
+Twig's compiled templates can be very fast once warmed up, especially
+when templates contain complex logic.
+
+------------------------------------------------------------------------
+
+### 📊 The Fair Way to Compare
+
+If you want a meaningful comparison, benchmark your **real workload**:
+
+-   Same HTML output
+-   Same dataset
+-   Warm cache (OPcache enabled)
+-   Measure:
+    -   Total execution time
+    -   Time per render
+    -   Memory usage
+    -   Peak memory
+
+Typical pattern:
+
+-   **Smart Template** excels at high-frequency micro-component
+    rendering.
+-   **Twig** excels when templates contain significant view logic.
+
+------------------------------------------------------------------------
+
+### 🏁 Practical Recommendation
+
+Choose **Smart Template** if:
+
+-   You want maximum performance
+-   You render thousands of small components
+-   You prefer full PHP control
+-   You want zero dependencies
+
+Choose **Twig** if:
+
+-   You want a structured template language
+-   You need inheritance/macros
+-   Your team prefers separation between PHP and views
+
+------------------------------------------------------------------------
+
+Smart Template is built for **speed, simplicity, and full developer
+control**.
+
+
 ## 📜 License
 
 MIT License
