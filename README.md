@@ -1,100 +1,146 @@
-Smart Template
-===============
+# Smart Template
 
-## Introduction
+Lightning-fast, dependency-free PHP template engine based on **lazy
+closures** and **named placeholder substitution**.
 
-Stop using **template engines** with new languages and new tricks to learn!  
-This is the right place: `smart-template` have the potential for building an **engine** based on callbacks that is lightning fast.  
+No DSL.\
+No new syntax to learn.\
+No parser overhead.\
+Just pure PHP and structured rendering.
 
-This is a full rendering system in a few lines of code.  
-`smart-template` library is designed for **fast** and **efficient** rendering without the **mess** of complicated libraries.   
+------------------------------------------------------------------------
 
-**There are no dependencies!!**  
+## 🚀 Introduction
 
-You will only use what you really need.  
+Stop using template engines with new languages and new tricks to learn!
 
-## Features
+`smart-template` is a minimal yet powerful rendering system built
+entirely around:
 
-- key->value substitutions.
-- Nested templates files in a structered folders to access anything you need.
-- Deep nested rendering.
-- Customized attributes rendering for HTML elements.
-- Callbacks for customized rendering.
-- ...
+-   PHP arrays
+-   Closures
+-   Named placeholders
+-   Lazy evaluation
 
-## Installation
+Designed for **speed**, **clarity**, and **full control**.
 
-As usual, composer make the job for you:
+### No:
 
-```bash
+-   ❌ Dependencies
+-   ❌ Custom template language
+-   ❌ Runtime parser
+-   ❌ Compilation step
+
+Everything is explicit, predictable, and fast.
+
+------------------------------------------------------------------------
+
+## ✨ Features
+
+-   Named `{key}` substitutions
+-   Deep nested rendering
+-   Lazy compilation (compile-on-access)
+-   Nested template folders
+-   Custom attribute rendering
+-   Custom placeholder callbacks
+-   `$this->require()` support inside templates
+-   Fully PHP-native
+-   OPcache-friendly
+-   Zero dependencies
+
+------------------------------------------------------------------------
+
+## 📦 Installation
+
+``` bash
 composer require dalpras/smart-template
 ```
 
-## Examples
-Let's take a look to an example ...  
-Just some lines of code in different files.  
+------------------------------------------------------------------------
 
-```php
+## 🧠 Basic Usage
 
-/** ./mywebpage.php */
+``` php
+use DalPraS\SmartTemplate\TemplateEngine;
+
 $templateEngine = new TemplateEngine(__DIR__ . '/templates');
 
 echo $templateEngine->render('table.php', function ($render) {
-        return $render['table']([
-            '{class}' => 'text-end',
-            '{cols}' => $render['row'](['{text}' => 'hello datum!'])
-        ]);
-    });
-
-// or you can begin to nest everything you need
-
-echo $templateEngine->render('table.php', function ($render) {
-        return $render['table']([
-            '{class}' => 'text-end',
-            '{rows}' => function($render) {
-                return $render['row'](['{text}' => 'hello nested!']);
-            },
-        ]);
-    });
-
-
-// or just use another file for rendering
-
-echo $templateEngine->render('toolbar.php', function ($render) {
-        return $render['header']([
-            '{text}' => 'hello toolbar!'
-        ]);
-    });
-
-// also you can use many files as you want
-
-echo $templateEngine->render('table.php', function($render) use ($templateEngine) {
-        return $render['table']([
-            '{class}' => 'text-end',
-            '{rows}' => function($render) use ($templateEngine) {
-                return $templateEngine->render('toolbar.php', fn($render) => $render['header']([
-                    '{text}' => 'hello different template toolbar'
-                ]));
-            },
-        ]);
-    });
-
-// or custom specific functions for rendering
-
-echo $templateEngine->render('table.php', function ($render) {
-        return $render['table']([
-            '{class}' => 'text-end',
-            '{rows}' => $render['myfunc']('hello func!'),
-        ]);
-    });
-
-
-// GREAT POWER INVOLVES GREAT RESPONSIBILITY!
+    return $render['table']([
+        '{class}' => 'text-end',
+        '{rows}'  => $render['row'](['{text}' => 'hello datum!'])
+    ]);
+});
 ```
 
+------------------------------------------------------------------------
 
-```php
-/** ./templates/table.php */
+## 🧩 Nested Rendering
+
+``` php
+echo $templateEngine->render('table.php', function ($render) {
+    return $render['table']([
+        '{class}' => 'text-end',
+        '{rows}'  => function ($render) {
+            return $render['row'](['{text}' => 'hello nested!']);
+        },
+    ]);
+});
+```
+
+Closures inside placeholders are resolved automatically.
+
+------------------------------------------------------------------------
+
+## 📂 Rendering Different Templates
+
+``` php
+echo $templateEngine->render('toolbar.php', function ($render) {
+    return $render['header']([
+        '{text}' => 'hello toolbar!'
+    ]);
+});
+```
+
+------------------------------------------------------------------------
+
+## 🔁 Cross-Template Rendering
+
+``` php
+echo $templateEngine->render('table.php', function ($render) use ($templateEngine) {
+    return $render['table']([
+        '{class}' => 'text-end',
+        '{rows}'  => function () use ($templateEngine) {
+            return $templateEngine->render('toolbar.php', fn($render) =>
+                $render['header']([
+                    '{text}' => 'hello different template toolbar'
+                ])
+            );
+        },
+    ]);
+});
+```
+
+------------------------------------------------------------------------
+
+## 🛠 Custom Functions Inside Templates
+
+``` php
+echo $templateEngine->render('table.php', function ($render) {
+    return $render['table']([
+        '{class}' => 'text-end',
+        '{rows}'  => $render['myfunc']('hello func!'),
+    ]);
+});
+```
+
+------------------------------------------------------------------------
+
+## 📄 Example Template Files
+
+### ./templates/table.php
+
+``` php
 return [
     'table' => <<<html
         <div class="table-responsive">
@@ -104,22 +150,68 @@ return [
                 </tbody>
             </table>
         </div>
-        html,
+    html,
 
     'row' => <<<html
-        <tr><td>{text}</tr></td>
-        html,
+        <tr><td>{text}</td></tr>
+    html,
 ];
 ```
 
+### ./templates/nesteddir/toolbar.php
 
-```php
-/** ./templates/nesteddir/toolbar.php */
+``` php
 return [
     'header' => <<<html
         <div class="toolbar">{text}</div>
-        html,
-        
+    html,
+
     'myfunc' => fn($text) => 'This is your ' . $text
 ];
 ```
+
+------------------------------------------------------------------------
+
+## 🧬 How It Works
+
+1.  Templates return arrays.
+2.  Arrays are wrapped in `RenderCollection`.
+3.  Strings are lazily converted into closures.
+4.  Placeholders are replaced using fast `strtr()`.
+5.  Closures inside arguments are resolved automatically.
+6.  Nested collections resolve recursively.
+
+There is no parsing stage.
+
+------------------------------------------------------------------------
+
+## 🏎 Performance Notes
+
+-   Uses `strtr()` instead of `vsprintf()` for speed.
+-   Lazy compilation avoids unnecessary processing.
+-   Designed for PHP OPcache.
+-   No reflection.
+-   No regex-based parsing.
+
+With proper usage, performance is comparable or faster than traditional
+engines in component-based rendering.
+
+------------------------------------------------------------------------
+
+## ⚠ Responsibility
+
+With great power comes great responsibility.
+
+This engine does not automatically protect against:
+
+-   XSS (use escapers properly)
+-   Logical complexity
+-   Over-nesting closures
+
+Use responsibly.
+
+------------------------------------------------------------------------
+
+## 📜 License
+
+MIT License
