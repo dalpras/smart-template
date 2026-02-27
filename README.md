@@ -68,11 +68,11 @@ echo $templateEngine->render('toolbar.php', function ($render) {
 
 // also you can use many files as you want
 
-echo $templateEngine->render('table.php', function ($render) {
+echo $templateEngine->render('table.php', function($render) use ($templateEngine) {
         return $render['table']([
             '{class}' => 'text-end',
-            '{rows}' => function($render, TemplateEngine $template) {
-                return $template->render('toolbar.php', fn($render) => $render['header']([
+            '{rows}' => function($render) use ($templateEngine) {
+                return $templateEngine->render('toolbar.php', fn($render) => $render['header']([
                     '{text}' => 'hello different template toolbar'
                 ]));
             },
