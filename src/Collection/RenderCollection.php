@@ -125,7 +125,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      * The collection stores raw template data (strings, arrays, closures, etc.).
      * No wrapping or compilation happens at construction time — everything is
      * evaluated lazily when accessed.
-     */    
+     */
     public function __construct(array $items = [])
     {
         $this->items = $items;
@@ -138,7 +138,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      *
      * Used to ensure nested collections share the same root context.
      * The root is set only once (idempotent).
-     */    
+     */
     public function setRoot(self $root): void
     {
         $this->root ??= $root;
@@ -158,7 +158,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      * into compiled render callables when accessed via offsetGet().
      *
      * If null, no compilation occurs.
-     */    
+     */
     public function setLazyCompiler(?Closure $compiler): void
     {
         $this->lazyCompiler = $compiler;
@@ -181,30 +181,45 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      * - Compilation/wrapping is memoized (stored back into the collection).
      *
      * This method is the core of the lazy evaluation mechanism.
-     */    
+     */
     public function offsetGet(mixed $offset): mixed
     {
         $key = (string) $offset;
+
         if (!array_key_exists($key, $this->items)) {
             return null;
         }
 
         $value = $this->items[$key];
 
+        // Already wrapped collection
+        if ($value instanceof self) {
+            return $value;
+        }
+
         // Wrap nested arrays
         if (is_array($value)) {
             $child = new self($value);
             $child->setLazyCompiler($this->lazyCompiler);
             $child->setRoot($this->getRoot());
+
             return $this->items[$key] = $child;
         }
 
-        // Compile leaves
-        if (
-            $this->lazyCompiler !== null
-            && is_string($value)
-        ) {
-            return $this->items[$key] = ($this->lazyCompiler)($value, $key, $this);
+        // Let compiler resolve strings, lazy wrappers, or other deferred nodes
+        if ($this->lazyCompiler !== null) {
+            $compiled = ($this->lazyCompiler)($value, $key, $this);
+
+            // If compiler returned a plain array, wrap it immediately so chained access works
+            if (is_array($compiled)) {
+                $child = new self($compiled);
+                $child->setLazyCompiler($this->lazyCompiler);
+                $child->setRoot($this->getRoot());
+
+                return $this->items[$key] = $child;
+            }
+
+            return $this->items[$key] = $compiled;
         }
 
         return $value;
@@ -228,7 +243,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      * Returns an ArrayIterator over raw internal items.
      * Iteration does NOT trigger lazy compilation unless offsetGet()
      * is explicitly used.
-     */    
+     */
     public function getIterator(): Traversable
     {
         // Iterating doesn't force compilation unless caller does offsetGet()
@@ -248,7 +263,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      * Performs a recursive array replacement using array_replace_recursive().
      *
      * Existing keys are overwritten by new values.
-     */    
+     */
     public function merge(array $data): void
     {
         // faster than array_replace_recursive in many cases, but semantics differ.
@@ -265,7 +280,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      * - Recursively converts nested RenderCollection instances to arrays.
      *
      * Closures are NOT executed here — use resolve() for full evaluation.
-     */    
+     */
     public function toArray(): array
     {
         $out = [];
@@ -292,7 +307,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      * - Allows in-place mutation of values.
      *
      * The callback receives values by reference.
-     */    
+     */
     public function walk(?callable $callback): bool
     {
         if (!$callback) return true;
@@ -328,7 +343,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      *     - Arrays containing closures or collections
      *
      * Returns a fully materialized array containing only resolved values.
-     */    
+     */
     public function resolve(array $params = []): array
     {
         // Force lazy compilation / wrapping at this level
@@ -388,7 +403,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      *   $collection->find('layout/menu/mobile');
      *
      * Returns null if any segment does not exist.
-     */    
+     */
     public function find(string $path, string $delimiter = '/'): mixed
     {
         $keys = explode($delimiter, $path);

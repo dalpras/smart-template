@@ -93,8 +93,8 @@ class TemplateEngine
             }
         }
 
-        $this->attributeComposer = static fn($name, $value): string 
-            => $name . '="' . str_replace('"', '&quot;', (string) $value) . '"';
+        $this->attributeComposer = static fn($name, $value): string
+        => $name . '="' . str_replace('"', '&quot;', (string) $value) . '"';
 
         $this->attributeRender = function ($name, $value): string {
             $value = match ($name) {
@@ -156,9 +156,34 @@ class TemplateEngine
 
     private function compileLazy(string $namespace, mixed $value, RenderCollection $self): mixed
     {
-        if ($value instanceof Closure) return $value;
-        if (is_object($value) && is_callable($value)) return $value;
-        if (!is_string($value)) return $value;
+        if ($value instanceof LazyTemplateFile) {
+            $loaded = $this->require($value->path);
+
+            if (is_array($loaded)) {
+                $nested = new RenderCollection($loaded);
+                $nested->setRoot($self->getRoot());
+                $nested->setLazyCompiler(
+                    fn(mixed $nestedValue, string|int $nestedKey, RenderCollection $nestedSelf)
+                    => $this->compileLazy($namespace, $nestedValue, $nestedSelf)
+                );
+
+                return $nested;
+            }
+
+            return $loaded;
+        }
+
+        if ($value instanceof \Closure) {
+            return $value;
+        }
+
+        if (is_object($value) && is_callable($value)) {
+            return $value;
+        }
+
+        if (!is_string($value)) {
+            return $value;
+        }
 
         return $this->asRender($value, $namespace, $self->getRoot());
     }
@@ -191,6 +216,11 @@ class TemplateEngine
         }
 
         return $loaded;
+    }
+
+    public function lazyRequire(string $path): LazyTemplateFile
+    {
+        return new LazyTemplateFile($path);
     }
 
     private function isCacheable(mixed $v): bool
@@ -380,7 +410,7 @@ class TemplateEngine
         }
 
         return strtr($template, $args);
-    }    
+    }
 
     private static function defaultStringify(mixed $v, string|int $key, array $options): string
     {
