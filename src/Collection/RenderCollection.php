@@ -5,19 +5,23 @@ declare(strict_types=1);
 namespace DalPraS\SmartTemplate\Collection;
 
 use ArrayAccess;
-use Closure;
-use IteratorAggregate;
 use ArrayIterator;
-use Traversable;
+use Closure;
 use Countable;
+use IteratorAggregate;
+use OutOfBoundsException;
+use Traversable;
 
 /**
  * RenderCollection
  *
- * A lightweight, lazy-evaluated hierarchical container for template nodes.
+ * A lightweight, lazily-evaluated hierarchical container for template nodes.
  *
- * This class acts as the internal data structure used by the template engine
- * to store, organize, lazily compile, and resolve template definitions.
+ * This class is the internal tree structure used by the template engine to:
+ * - store template definitions
+ * - lazily wrap nested arrays into RenderCollection instances
+ * - lazily compile leaf nodes through an injected compiler
+ * - resolve nested structures into plain PHP arrays
  *
  * ---------------------------------------------------------------------------
  * Core Responsibilities
@@ -25,86 +29,73 @@ use Countable;
  *
  * 1) Lazy Wrapping of Nested Arrays
  *    --------------------------------
- *    Nested arrays are automatically wrapped into RenderCollection instances
- *    when accessed via offsetGet(). This allows the entire structure to behave
- *    uniformly, regardless of depth.
+ *    Nested arrays are converted into RenderCollection instances only when
+ *    accessed through offsetGet().
  *
  * 2) Lazy Compilation of Leaf Nodes
  *    --------------------------------
- *    When a string leaf is accessed, and a lazy compiler has been defined,
- *    the value is transformed into a compiled render callable (typically a Closure).
+ *    If a lazy compiler is defined, leaf values are transformed on first access.
+ *    This is typically used to compile template strings into render callables.
  *
- *    This avoids compiling all templates upfront and significantly improves
- *    performance when working with large template trees.
- *
- * 3) Transparent Array Access
+ * 3) Hierarchical Lookup
  *    --------------------------------
- *    Implements:
- *      - ArrayAccess
- *      - IteratorAggregate
- *      - Countable
+ *    The collection supports direct key access and nested path traversal:
  *
- *    This allows the collection to behave like a native PHP array while
- *    retaining lazy evaluation and compilation behavior.
+ *      - getPath('a.b.c')   strict lookup, cached, throws if missing
+ *      - find('a/b/c')      safe lookup, returns null if missing
  *
  * 4) Deep Resolution
  *    --------------------------------
- *    The resolve() method evaluates:
- *      - Nested RenderCollection instances
- *      - Closures (with optional parameters)
- *      - Arrays returned by closures
- *      - Deeply nested structures
+ *    The resolve() method recursively evaluates:
+ *      - nested RenderCollection instances
+ *      - closures
+ *      - arrays returned by closures
+ *      - deeply nested structures
  *
- *    The result is a fully materialized plain PHP array containing only
- *    resolved scalar values (no closures, no RenderCollection objects).
+ *    The result is a fully materialized plain PHP array with no closures and
+ *    no RenderCollection objects remaining.
  *
  * ---------------------------------------------------------------------------
  * Design Philosophy
  * ---------------------------------------------------------------------------
  *
- * - Compilation is lazy (only happens when accessed).
- * - Nested arrays are normalized to RenderCollection automatically.
- * - No upfront deep traversal.
- * - Resolution is explicit and controlled.
- * - Designed for high-performance template systems with thousands of nodes.
- *
- * ---------------------------------------------------------------------------
- * Typical Lifecycle
- * ---------------------------------------------------------------------------
- *
- * 1. Template arrays are loaded from filesystem.
- * 2. RenderCollection is instantiated with raw array data.
- * 3. Lazy compiler is injected by TemplateEngine.
- * 4. Accessing keys triggers:
- *      - Nested wrapping
- *      - Leaf compilation
- * 5. resolve() produces a fully evaluated deep array.
+ * - Wrapping is lazy.
+ * - Compilation is lazy.
+ * - Memoization is local and explicit.
+ * - Deep resolution is opt-in.
+ * - The structure behaves like an array without losing template-specific behavior.
  *
  * ---------------------------------------------------------------------------
  * Performance Characteristics
  * ---------------------------------------------------------------------------
  *
- * - O(1) access cost for uncompiled nodes.
- * - Compilation cost paid only once per node.
- * - Memoized wrapping (offsetGet stores wrapped/compiled value back).
- * - No recursion during normal traversal unless resolve() is called.
+ * - O(1) access for raw top-level keys.
+ * - Nested lookup cost is proportional to path depth.
+ * - Compilation cost is paid only once per accessed node.
+ * - Wrapped/compiled values are memoized back into the collection.
+ * - Frequently used dotted paths can be cached via getPath().
  *
  * ---------------------------------------------------------------------------
- * Thread-Safety / Mutability
+ * Mutability Notes
  * ---------------------------------------------------------------------------
  *
- * This class is mutable:
- * - offsetGet() may replace internal values (memoization).
- * - walk() mutates values.
- * - merge() modifies internal state.
+ * This class is mutable.
  *
- * It is designed for single-request lifecycle usage.
+ * The following operations may modify internal state:
+ * - offsetGet()      memoizes wrapped/compiled values
+ * - offsetSet()      changes stored items
+ * - offsetUnset()    removes stored items
+ * - merge()          recursively replaces values
+ * - walk()           may mutate values in place
+ *
+ * Because of this, cached path lookups are automatically invalidated whenever
+ * the structure is modified.
  *
  * ---------------------------------------------------------------------------
  * Usage Context
  * ---------------------------------------------------------------------------
  *
- * Internal structure for SmartTemplate engine.
+ * Internal structure for the SmartTemplate engine.
  * Not intended as a general-purpose collection library.
  */
 final class RenderCollection implements ArrayAccess, IteratorAggregate, Countable
@@ -117,14 +108,16 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
     /** @var null|Closure(mixed $value, string|int $key, RenderCollection $self): mixed */
     private ?Closure $lazyCompiler = null;
 
+    /** @var array<string, mixed> Cache for successful strict path lookups */
+    private array $pathCache = [];
+
     /**
      * Create a new RenderCollection instance.
      *
      * @param array<string, mixed> $items Initial template structure.
      *
-     * The collection stores raw template data (strings, arrays, closures, etc.).
-     * No wrapping or compilation happens at construction time — everything is
-     * evaluated lazily when accessed.
+     * Values are stored as-is. Nested wrapping and compilation only happen
+     * later when nodes are accessed.
      */
     public function __construct(array $items = [])
     {
@@ -132,55 +125,69 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
     }
 
     /**
-     * Assign the root RenderCollection reference.
+     * Assign the root RenderCollection for this tree.
      *
-     * @param self $root The root collection of the entire template tree.
+     * The root is propagated to child collections so all nested scopes can
+     * still access a shared root context.
      *
-     * Used to ensure nested collections share the same root context.
-     * The root is set only once (idempotent).
+     * This assignment is idempotent: once a root is set, it is not replaced.
      */
     public function setRoot(self $root): void
     {
         $this->root ??= $root;
     }
 
+    /**
+     * Return the root collection of the current tree.
+     *
+     * If no explicit root has been assigned, the current instance is treated
+     * as the root.
+     */
     public function getRoot(): self
     {
         return $this->root ?? $this;
     }
 
     /**
-     * Define a lazy compiler callback.
+     * Define the lazy compiler used when leaf nodes are accessed.
+     *
+     * The compiler receives:
+     * - the raw value
+     * - the current key
+     * - the current RenderCollection scope
+     *
+     * It may return:
+     * - a compiled closure
+     * - a scalar
+     * - an array, which will then be wrapped into a RenderCollection
+     * - any other value the engine wishes to memoize
      *
      * @param null|Closure(mixed $value, string|int $key, RenderCollection $self): mixed $compiler
-     *
-     * The lazy compiler transforms leaf values (typically strings)
-     * into compiled render callables when accessed via offsetGet().
-     *
-     * If null, no compilation occurs.
      */
     public function setLazyCompiler(?Closure $compiler): void
     {
         $this->lazyCompiler = $compiler;
     }
 
+    /**
+     * Determine whether a top-level key exists.
+     *
+     * This checks only the immediate collection level.
+     */
     public function offsetExists(mixed $offset): bool
     {
-        return array_key_exists((string)$offset, $this->items);
+        return array_key_exists((string) $offset, $this->items);
     }
 
     /**
      * Retrieve a value from the collection.
      *
-     * @param mixed $offset
-     * @return mixed
-     *
      * Behavior:
-     * - Nested arrays are automatically wrapped into RenderCollection instances.
-     * - String leaf nodes are lazily compiled using the defined compiler.
-     * - Compilation/wrapping is memoized (stored back into the collection).
+     * - nested arrays are lazily wrapped into RenderCollection instances
+     * - leaf values may be lazily compiled using the configured compiler
+     * - wrapped/compiled values are memoized back into the collection
      *
-     * This method is the core of the lazy evaluation mechanism.
+     * Missing keys return null.
      */
     public function offsetGet(mixed $offset): mixed
     {
@@ -225,92 +232,106 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
         return $value;
     }
 
+    /**
+     * Set a top-level key.
+     *
+     * Invalidates cached path lookups because the tree may have changed.
+     */
     public function offsetSet(mixed $offset, mixed $value): void
     {
-        $this->items[(string)$offset] = $value;
-    }
-
-    public function offsetUnset(mixed $offset): void
-    {
-        unset($this->items[(string)$offset]);
+        $this->items[(string) $offset] = $value;
+        $this->flushPathCache();
     }
 
     /**
-     * Retrieve an iterator for the collection.
+     * Remove a top-level key.
      *
-     * @return Traversable
+     * Invalidates cached path lookups because the tree may have changed.
+     */
+    public function offsetUnset(mixed $offset): void
+    {
+        unset($this->items[(string) $offset]);
+        $this->flushPathCache();
+    }
+
+    /**
+     * Return an iterator over raw internal items.
      *
-     * Returns an ArrayIterator over raw internal items.
-     * Iteration does NOT trigger lazy compilation unless offsetGet()
-     * is explicitly used.
+     * Iteration itself does not force wrapping or compilation.
+     * Consumers that want lazy behavior should access values through offsetGet().
      */
     public function getIterator(): Traversable
     {
-        // Iterating doesn't force compilation unless caller does offsetGet()
         return new ArrayIterator($this->items);
     }
 
+    /**
+     * Return the number of top-level items in the collection.
+     */
     public function count(): int
     {
         return count($this->items);
     }
 
     /**
-     * Merge another array into the collection.
+     * Merge another array into the collection recursively.
+     *
+     * Existing values are replaced using array_replace_recursive().
+     * Cached path lookups are invalidated after the merge.
      *
      * @param array<string, mixed> $data
-     *
-     * Performs a recursive array replacement using array_replace_recursive().
-     *
-     * Existing keys are overwritten by new values.
      */
     public function merge(array $data): void
     {
-        // faster than array_replace_recursive in many cases, but semantics differ.
-        // If you require deep merge, keep a recursive merge here.
         $this->items = array_replace_recursive($this->items, $data);
+        $this->flushPathCache();
     }
 
     /**
      * Convert the collection into a plain PHP array.
      *
+     * This forces lazy wrapping/compilation during traversal, but does not
+     * execute closures. Use resolve() for full evaluation.
+     *
      * @return array<string, mixed>
-     *
-     * - Forces lazy wrapping/compilation via offsetGet().
-     * - Recursively converts nested RenderCollection instances to arrays.
-     *
-     * Closures are NOT executed here — use resolve() for full evaluation.
      */
     public function toArray(): array
     {
         $out = [];
+
         foreach (array_keys($this->items) as $k) {
             // Use offsetGet() so nested arrays become RenderCollection and lazy compilation can happen if needed
             $v = $this->offsetGet($k);
+
             if ($v instanceof self) {
                 $out[$k] = $v->toArray();     // deep convert
             } else {
                 $out[$k] = $v;
             }
         }
+
         return $out;
     }
 
     /**
-     * Recursively walk through all items in the collection.
+     * Walk through the collection recursively.
      *
-     * @param callable|null $callback function (&$value, $key): void
-     * @return bool
+     * Behavior:
+     * - forces lazy wrapping/compilation via offsetGet()
+     * - recursively visits nested RenderCollection instances
+     * - allows in-place mutation of leaf values
      *
-     * - Forces lazy compilation via offsetGet().
-     * - Recursively visits nested collections.
-     * - Allows in-place mutation of values.
+     * The callback receives:
+     * - the value (by value)
+     * - the current key
      *
-     * The callback receives values by reference.
+     * Mutated values are written back into the collection.
      */
     public function walk(?callable $callback): bool
     {
-        if (!$callback) return true;
+        if (!$callback) {
+            return true;
+        }
 
         foreach (array_keys($this->items) as $k) {
             $v = $this->offsetGet($k); // <-- forces lazy compiler + wraps arrays to RenderCollection
@@ -325,24 +346,21 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
             $this->items[$k] = $v;      // persist mutations
         }
 
+        $this->flushPathCache();
+
         return true;
     }
 
     /**
-     * Fully resolve the collection into a plain array.
+     * Fully resolve the collection into a plain PHP array.
+     *
+     * Behavior:
+     * - forces lazy compilation and wrapping
+     * - executes closures
+     * - recursively resolves nested collections and arrays
      *
      * @param array<string, mixed> $params Optional parameters passed to closures.
      * @return array<string, mixed>
-     *
-     * Behavior:
-     * - Forces lazy compilation at all levels.
-     * - Executes all closures (with or without parameters).
-     * - Recursively resolves:
-     *     - Nested RenderCollection instances
-     *     - Closures returned by other closures
-     *     - Arrays containing closures or collections
-     *
-     * Returns a fully materialized array containing only resolved values.
      */
     public function resolve(array $params = []): array
     {
@@ -351,7 +369,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
             $this->offsetGet($k);
         }
 
-        $call = static function (\Closure $c) use ($params) {
+        $call = static function (Closure $c) use ($params) {
             try {
                 return $c($params);
             } catch (\ArgumentCountError) {
@@ -375,6 +393,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
                 foreach ($v as $k => $item) {
                     $v[$k] = $resolveValue($item);
                 }
+
                 return $v;
             }
 
@@ -382,6 +401,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
         };
 
         $out = [];
+
         foreach (array_keys($this->items) as $k) {
             // Use offsetGet so lazy compiler + wrapping is applied
             $out[$k] = $resolveValue($this->offsetGet($k));
@@ -391,45 +411,101 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
     }
 
     /**
-     * Retrieve a nested value using a path expression.
+     * Retrieve a nested value using a strict path lookup.
      *
-     * @param string $path Path using delimiter-separated keys (default "/").
-     * @param string $delimiter
-     * @return mixed|null
+     * This method:
+     * - supports dotted paths by default, such as "layout.menu.mobile"
+     * - uses lazy wrapping/compilation during traversal
+     * - caches successful lookups for repeated access
+     * - throws OutOfBoundsException if the path cannot be resolved
      *
-     * Traverses nested collections and arrays safely.
+     * @throws OutOfBoundsException
+     */
+    public function getPath(string $path, string $separator = '.'): mixed
+    {
+        if (array_key_exists($path, $this->pathCache)) {
+            return $this->pathCache[$path];
+        }
+
+        $found = false;
+        $value = $this->resolvePath($path, $separator, $found);
+
+        if (!$found) {
+            throw new OutOfBoundsException("Path not found: {$path}");
+        }
+
+        return $this->pathCache[$path] = $value;
+    }
+
+    /**
+     * Retrieve a nested value using a safe path lookup.
      *
-     * Example:
-     *   $collection->find('layout/menu/mobile');
+     * This method:
+     * - supports slash-separated paths by default, such as "layout/menu/mobile"
+     * - uses lazy wrapping/compilation during traversal
+     * - returns null if the path cannot be resolved
      *
-     * Returns null if any segment does not exist.
+     * Note:
+     * A returned null may also mean the resolved value itself is null.
+     * Use getPath() if strict missing-path detection is required.
      */
     public function find(string $path, string $delimiter = '/'): mixed
     {
-        $keys = explode($delimiter, $path);
+        $found = false;
+
+        return $this->resolvePath($path, $delimiter, $found);
+    }
+
+    /**
+     * Resolve a nested path against the collection tree.
+     *
+     * Traverses RenderCollection instances and plain arrays uniformly.
+     * Lazy wrapping/compilation is triggered when crossing collection nodes.
+     *
+     * @param bool $found Output flag indicating whether traversal completed successfully.
+     */
+    private function resolvePath(string $path, string $delimiter, bool &$found): mixed
+    {
+        $keys = array_values(array_filter(explode($delimiter, $path), 'strlen'));
         $current = $this;
 
         foreach ($keys as $key) {
-
             if ($current instanceof self) {
                 if (!$current->offsetExists($key)) {
+                    $found = false;
                     return null;
                 }
+
                 $current = $current->offsetGet($key);
                 continue;
             }
 
             if (is_array($current)) {
                 if (!array_key_exists($key, $current)) {
+                    $found = false;
                     return null;
                 }
+
                 $current = $current[$key];
                 continue;
             }
 
+            $found = false;
             return null;
         }
 
+        $found = true;
         return $current;
+    }
+
+    /**
+     * Invalidate cached strict path lookups.
+     *
+     * Needed because the collection is mutable and cached paths may become stale
+     * after updates, merges, or in-place mutations.
+     */
+    private function flushPathCache(): void
+    {
+        $this->pathCache = [];
     }
 }
