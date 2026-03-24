@@ -185,7 +185,7 @@ class TemplateEngine
             return $value;
         }
 
-        return $this->asRender($value, $namespace, $self->getRoot());
+        return $this->asRender($value, $namespace, $self->getRoot(), $self);
     }
 
     public function require(string $path): mixed
@@ -343,9 +343,14 @@ class TemplateEngine
     /**
      * Convert a single value into a render callable without registering it.
      */
-    protected function asRender(mixed $value, string $namespace, RenderCollection $root): Closure
-    {
-        $invokeArgs = [$root, $this, $namespace];
+    protected function asRender(
+        mixed $value, 
+        string $namespace, 
+        RenderCollection $root,
+        ?RenderCollection $scope = null
+    ): Closure {
+        $scope ??= $root;
+        $invokeArgs = [$root, $scope, $this, $namespace];
 
         if (is_string($value)) {
             return function (array $args = []) use ($invokeArgs, $value): string {
