@@ -80,7 +80,6 @@ class TemplateEngine
         bool $preload = true,
         private ?CacheInterface $cache = null,
         private int $templateCacheTtl = 86400
-        // private bool $cacheStrictMtime = false
     ) {
         if ($directory && is_dir($directory)) {
             $this->directoryIterator = new RecursiveIteratorIterator(
@@ -344,8 +343,8 @@ class TemplateEngine
      * Convert a single value into a render callable without registering it.
      */
     protected function asRender(
-        mixed $value, 
-        string $namespace, 
+        mixed $value,
+        string $namespace,
         RenderCollection $root,
         ?RenderCollection $scope = null
     ): Closure {
@@ -359,6 +358,10 @@ class TemplateEngine
                     $value,
                     $args,
                     function (array $args): array {
+                        if ($this->customParamCallbacks === []) {
+                            return $args;
+                        }
+
                         foreach ($args as $tag => &$arg) {
                             if (isset($this->customParamCallbacks[$tag])) {
                                 $arg = $this->customParamCallbacks[$tag]($arg);
@@ -366,8 +369,10 @@ class TemplateEngine
                         }
                         unset($arg);
 
-                        foreach (array_diff_key($this->customParamCallbacks, $args) as $k => $cb) {
-                            $args[$k] = $cb(null);
+                        foreach ($this->customParamCallbacks as $k => $cb) {
+                            if (!array_key_exists($k, $args)) {
+                                $args[$k] = $cb(null);
+                            }
                         }
 
                         return $args;
@@ -377,7 +382,6 @@ class TemplateEngine
         }
 
         if (is_object($value) && is_callable($value)) {
-            /** @var Closure $value */
             return $value;
         }
 
@@ -396,11 +400,13 @@ class TemplateEngine
         ?Closure $stringify = null,
         array $options = []
     ): string {
+        $hasClosure = false;
+
         foreach ($args as $k => $v) {
             if ($v instanceof Closure) {
-                $v = $v(...$invokeArgs);
+                $args[$k] = $v(...$invokeArgs);
+                $hasClosure = true;
             }
-            $args[$k] = $v;
         }
 
         if ($resolve !== null) {
@@ -409,7 +415,36 @@ class TemplateEngine
 
         $stringify ??= static fn($v, $key): string => self::defaultStringify($v, $key, $options);
 
-        // stringify once, then plain replace
+        // Fast path: already scalar-ish strings/ints/floats/bools/null
+        $allSimple = !$hasClosure;
+        if ($allSimple) {
+            foreach ($args as $k => $v) {
+                if (
+                    !is_string($v) &&
+                    !is_int($v) &&
+                    !is_float($v) &&
+                    !is_bool($v) &&
+                    $v !== null
+                ) {
+                    $allSimple = false;
+                    break;
+                }
+            }
+        }
+
+        if ($allSimple) {
+            foreach ($args as $k => $v) {
+                $args[$k] = match (true) {
+                    is_string($v) => $v,
+                    is_int($v), is_float($v) => (string) $v,
+                    is_bool($v) => $v ? '1' : '0',
+                    $v === null => '',
+                };
+            }
+
+            return strtr($template, $args);
+        }
+
         foreach ($args as $k => $v) {
             $args[$k] = $stringify($v, $k);
         }

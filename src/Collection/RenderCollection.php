@@ -111,6 +111,8 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
     /** @var array<string, mixed> Cache for successful strict path lookups */
     private array $pathCache = [];
 
+    private array $segmentCache = [];
+
     /**
      * Create a new RenderCollection instance.
      *
@@ -410,6 +412,14 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
         return $out;
     }
 
+    private function getSegments(string $path, string $delimiter): array
+    {
+        $cacheKey = $delimiter . "\0" . $path;
+
+        return $this->segmentCache[$cacheKey]
+            ??= array_values(array_filter(explode($delimiter, $path), 'strlen'));
+    }
+
     /**
      * Retrieve a nested value using a strict path lookup.
      *
@@ -466,7 +476,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      */
     private function resolvePath(string $path, string $delimiter, bool &$found): mixed
     {
-        $keys = array_values(array_filter(explode($delimiter, $path), 'strlen'));
+        $keys = $this->getSegments($path, $delimiter);
         $current = $this;
 
         foreach ($keys as $key) {
@@ -507,5 +517,6 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
     private function flushPathCache(): void
     {
         $this->pathCache = [];
+        $this->segmentCache = [];
     }
 }
