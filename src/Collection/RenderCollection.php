@@ -459,7 +459,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      * A returned null may also mean the resolved value itself is null.
      * Use getPath() if strict missing-path detection is required.
      */
-    public function find(string $path, string $delimiter = '/'): mixed
+    public function find(string $path, string $delimiter = '.'): mixed
     {
         $found = false;
 
