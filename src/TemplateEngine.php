@@ -42,6 +42,8 @@ class TemplateEngine
 
     private bool $fsIndexed = false;
 
+    private ?string $directory = null;
+
     /**
      * Custom parameter callbacks (key => function).
      *
@@ -82,13 +84,11 @@ class TemplateEngine
         private int $templateCacheTtl = 86400
     ) {
         if ($directory && is_dir($directory)) {
-            $this->directoryIterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS),
-                RecursiveIteratorIterator::LEAVES_ONLY
-            );
+            $this->directory = $directory;
 
             if ($preload && $default !== null) {
-                $this->loadFromFilesystem($default);
+                $defaultPath = rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . $default;
+                $this->getCollectionFromFile($defaultPath, $default);
             }
         }
 
@@ -120,7 +120,7 @@ class TemplateEngine
         $collection = $this->renders[$name] ?? null;
 
         if ($collection === null) {
-            if ($this->directoryIterator === null) {
+            if ($this->directory === null) {
                 throw new TemplateNotFoundException('Template not found: no search directory set.');
             }
 
@@ -130,6 +130,60 @@ class TemplateEngine
 
         if ($collection === null) {
             throw new TemplateNotFoundException("Template not found: {$name}");
+        }
+
+        return $collection;
+    }
+
+    public function getCollectionFromFile(string $file, ?string $alias = null): RenderCollection
+    {
+        $real = realpath($file);
+
+        if ($real === false || !is_file($real)) {
+            throw new TemplateNotFoundException("Template file not found: {$file}");
+        }
+
+        if ($alias !== null && isset($this->renders[$alias])) {
+            $aliased = $this->renders[$alias];
+
+            if (isset($this->renders[$real]) && $aliased === $this->renders[$real]) {
+                return $aliased;
+            }
+
+            if (!isset($this->renders[$real])) {
+                throw new \LogicException("Alias '{$alias}' is already bound to another template collection.");
+            }
+        }
+
+        if (isset($this->renders[$real])) {
+            $collection = $this->renders[$real];
+
+            if ($alias !== null) {
+                $this->renders[$alias] = $collection;
+            }
+
+            return $collection;
+        }
+
+        $templates = $this->require($real);
+
+        if (!is_array($templates)) {
+            throw new \RuntimeException("Template file must return array: {$real}");
+        }
+
+        $compileNamespace = $alias ?? $real;
+
+        $collection = new RenderCollection($templates);
+        $collection->setRoot($collection);
+        $collection->setLazyCompiler(
+            fn(mixed $value, string|int $key, RenderCollection $self)
+            => $this->compileLazy($compileNamespace, $value, $self)
+        );
+
+        $this->renders[$real] = $collection;
+
+        if ($alias !== null) {
+            $this->renders[$alias] = $collection;
         }
 
         return $collection;
@@ -264,36 +318,42 @@ class TemplateEngine
      */
     private function find(string $name): array
     {
-        if (!isset($this->proxies[$name])) {
+        if (!array_key_exists($name, $this->proxies)) {
             $realpath = realpath($name);
+
             if ($realpath && is_file($realpath)) {
                 $this->proxies[$name] = [new SplFileInfo($realpath)];
-            } elseif ($this->directoryIterator !== null) {
-                $this->buildFsIndex();
+            } else {
+                $this->proxies[$name] = [];
 
-                $needle = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $name);
-                $basename = basename($needle);
+                $iterator = $this->getDirectoryIterator();
+                if ($iterator !== null) {
+                    $this->buildFsIndex();
 
-                $matches = [];
-                if (!empty($this->indexByBasename[$basename])) {
-                    $suffix = DIRECTORY_SEPARATOR . $needle;
-                    $suffixLen = strlen($suffix);
+                    $needle = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $name);
+                    $basename = basename($needle);
 
-                    foreach ($this->indexByBasename[$basename] as $fi) {
-                        $path = $fi->getRealPath();
-                        if ($path !== false && strlen($path) >= $suffixLen && substr_compare($path, $suffix, -$suffixLen) === 0) {
-                            $matches[] = $fi;
+                    if (!empty($this->indexByBasename[$basename])) {
+                        $suffix = DIRECTORY_SEPARATOR . $needle;
+                        $suffixLen = strlen($suffix);
+
+                        foreach ($this->indexByBasename[$basename] as $fi) {
+                            $path = $fi->getRealPath();
+
+                            if (
+                                $path !== false &&
+                                strlen($path) >= $suffixLen &&
+                                substr_compare($path, $suffix, -$suffixLen) === 0
+                            ) {
+                                $this->proxies[$name][] = $fi;
+                            }
                         }
                     }
-                }
-
-                if ($matches) {
-                    $this->proxies[$name] = $matches;
                 }
             }
         }
 
-        if (empty($this->proxies[$name])) {
+        if ($this->proxies[$name] === []) {
             throw new TemplateNotFoundException("Could not find template '{$name}' in templates folder.");
         }
 
@@ -302,12 +362,13 @@ class TemplateEngine
 
     private function buildFsIndex(): void
     {
-        if ($this->fsIndexed || $this->directoryIterator === null) {
+        $iterator = $this->getDirectoryIterator();
+
+        if ($this->fsIndexed || $iterator === null) {
             return;
         }
 
-        /** @var SplFileInfo $fileInfo */
-        foreach ($this->directoryIterator as $fileInfo) {
+        foreach ($iterator as $fileInfo) {
             if (!$fileInfo->isFile()) {
                 continue;
             }
@@ -315,6 +376,18 @@ class TemplateEngine
         }
 
         $this->fsIndexed = true;
+    }
+
+    private function getDirectoryIterator(): ?RecursiveIteratorIterator
+    {
+        if ($this->directory === null) {
+            return null;
+        }
+
+        return $this->directoryIterator ??= new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($this->directory, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
     }
 
     /**
@@ -353,15 +426,10 @@ class TemplateEngine
 
         if (is_string($value)) {
             return function (array $args = []) use ($invokeArgs, $value): string {
-                return self::vnsprintf(
-                    $invokeArgs,
-                    $value,
-                    $args,
-                    function (array $args): array {
-                        if ($this->customParamCallbacks === []) {
-                            return $args;
-                        }
+                $resolver = null;
 
+                if ($this->customParamCallbacks !== []) {
+                    $resolver = function (array $args): array {
                         foreach ($args as $tag => &$arg) {
                             if (isset($this->customParamCallbacks[$tag])) {
                                 $arg = $this->customParamCallbacks[$tag]($arg);
@@ -376,8 +444,10 @@ class TemplateEngine
                         }
 
                         return $args;
-                    }
-                );
+                    };
+                }
+
+                return self::vnsprintf($invokeArgs, $value, $args, $resolver);
             };
         }
 
