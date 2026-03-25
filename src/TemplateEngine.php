@@ -137,24 +137,21 @@ class TemplateEngine
 
     public function getCollectionFromFile(string $file, ?string $alias = null): RenderCollection
     {
+        if ($alias !== null && isset($this->renders[$alias])) {
+            return $this->renders[$alias];
+        }
+
         $real = realpath($file);
 
         if ($real === false || !is_file($real)) {
             throw new TemplateNotFoundException("Template file not found: {$file}");
         }
 
-        if ($alias !== null && isset($this->renders[$alias])) {
-            $aliased = $this->renders[$alias];
+        return $this->loadCollectionFromRealFile($real, $alias);
+    }
 
-            if (isset($this->renders[$real]) && $aliased === $this->renders[$real]) {
-                return $aliased;
-            }
-
-            if (!isset($this->renders[$real])) {
-                throw new \LogicException("Alias '{$alias}' is already bound to another template collection.");
-            }
-        }
-
+    private function loadCollectionFromRealFile(string $real, ?string $alias = null): RenderCollection
+    {
         if (isset($this->renders[$real])) {
             $collection = $this->renders[$real];
 
