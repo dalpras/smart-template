@@ -1,20 +1,48 @@
 # Smart Template
 
-A small PHP template engine for structured rendering with native PHP arrays, lazy compilation, and named placeholder substitution.
+Lightning-fast, dependency-free PHP template engine based on lazy closures, structured collections, and named placeholder substitution.
 
-`smart-template` is designed for projects that want to keep rendering logic in PHP without introducing a separate template language. Templates are regular PHP files that return arrays of strings and callbacks. When accessed, string leaves are lazily compiled into render closures and nested arrays are wrapped into `RenderCollection` objects.
+No DSL.  
+No parser.  
+No compilation pipeline.  
+Just PHP arrays, closures, and direct rendering.
 
-## What it is good at
+---
 
-- Small, reusable HTML fragments and components
+## Introduction
+
+`smart-template` is designed for projects that want:
+
+- native PHP template files
+- explicit structure
+- low overhead
+- reusable fragments
+- lazy loading for large template trees
+
+Templates are plain PHP files that return arrays.  
+String leaves are compiled only when needed, nested arrays become scoped collections, and external template files can be loaded eagerly or lazily.
+
+This makes the library a good fit for:
+
+- component-style HTML rendering
+- structured UI fragments
+- large template trees split across multiple files
+- performance-sensitive rendering where only a small subset of templates is used per request
+
+---
+
+## Features
+
+- Named `{key}` substitutions
+- Nested template collections
+- Lazy compilation of string templates
+- Lazy placeholder closures
+- Eager template inclusion with `$this->require()`
+- Lazy template inclusion with `$this->lazyRequire()`
+- Strict path lookup with `at()`
 - PHP-native template composition
-- Dynamic rendering with named placeholders
-- Rendering from filesystem templates or in-memory templates
-- Fine-grained control over escaping and HTML attributes
-
-## What it is not
-
-This package is **not** a full view framework. It does not try to replace systems built around inheritance, blocks, macros, or expression languages. It works best when you want explicit PHP control over markup and composition.
+- OPcache-friendly design
+- Zero dependencies
 
 ---
 
@@ -36,28 +64,42 @@ A template file returns an array.
 
 Each array entry can be:
 
-- a **string** with placeholders such as `{title}` or `{rows}`
-- a **closure**
-- a **nested array** of more templates
-
-When a string leaf is accessed, the engine compiles it lazily into a closure. When you call that closure with an associative array, placeholders are replaced by key.
+- a string template
+- a closure
+- a nested array of templates
+- a required external template file
+- a lazy-required external template file
 
 Example:
 
 ```php
-$template['card']([
+return [
+    'card' => <<<HTML
+        <article class="card">
+            <h2>{title}</h2>
+            <div>{body}</div>
+        </article>
+        HTML,
+];
+```
+
+When a string leaf is accessed, it is compiled lazily into a render closure.  
+When you call that closure with an associative array, placeholders are replaced by key.
+
+```php
+echo $tpl['card']([
     '{title}' => 'Hello',
     '{body}'  => 'Welcome',
 ]);
 ```
 
-If a placeholder value is itself a closure, the engine resolves it before substitution.
+If a placeholder value is itself a closure, Smart Template resolves it before substitution.
 
 ---
 
-# Quick start
+## Quick start
 
-## 1) Create a template file
+### 1) Create a template file
 
 `templates/card.php`
 
@@ -66,15 +108,15 @@ If a placeholder value is itself a closure, the engine resolves it before substi
 
 return [
     'card' => <<<HTML
-<article class="card">
-    <h2>{title}</h2>
-    <div class="card__body">{body}</div>
-</article>
-HTML,
+        <article class="card">
+            <h2>{title}</h2>
+            <div class="card__body">{body}</div>
+        </article>
+        HTML,
 ];
 ```
 
-## 2) Render it
+### 2) Render it
 
 ```php
 <?php
@@ -86,25 +128,16 @@ $engine = new TemplateEngine(__DIR__ . '/templates');
 echo $engine->render('card.php', function ($tpl) {
     return $tpl['card']([
         '{title}' => 'Hello',
-        '{body}'  => 'This is rendered with Smart Template.',
+        '{body}'  => 'Rendered with Smart Template.',
     ]);
 });
 ```
 
-Output:
-
-```html
-<article class="card">
-    <h2>Hello</h2>
-    <div class="card__body">This is rendered with Smart Template.</div>
-</article>
-```
-
 ---
 
-# Working with nested template parts
+## Working with nested template parts
 
-You can keep related fragments in the same template file.
+You can group related fragments in one file.
 
 `templates/table.php`
 
@@ -113,33 +146,24 @@ You can keep related fragments in the same template file.
 
 return [
     'table' => <<<HTML
-<table class="{class}">
-    <tbody>
-        {rows}
-    </tbody>
-</table>
-HTML,
+        <table class="{class}">
+            <tbody>{rows}</tbody>
+        </table>
+        HTML,
 
     'row' => <<<HTML
-<tr>
-    <td>{text}</td>
-</tr>
-HTML,
+        <tr>
+            <td>{text}</td>
+        </tr>
+        HTML,
 ];
 ```
 
-Render it like this:
+Usage:
 
 ```php
-<?php
-
-use DalPraS\SmartTemplate\TemplateEngine;
-
-$engine = new TemplateEngine(__DIR__ . '/templates');
-
 echo $engine->render('table.php', function ($tpl) {
-    $rows = '';
-    $rows .= $tpl['row'](['{text}' => 'First row']);
+    $rows  = $tpl['row'](['{text}' => 'First row']);
     $rows .= $tpl['row'](['{text}' => 'Second row']);
 
     return $tpl['table']([
@@ -151,13 +175,12 @@ echo $engine->render('table.php', function ($tpl) {
 
 ---
 
-# Lazy placeholder closures
+## Lazy placeholder closures
 
-A placeholder value can be a closure. The engine resolves it before doing the string substitution. This is useful when a placeholder depends on other template fragments.
+A placeholder value can be a closure.  
+The engine resolves it before string substitution.
 
 ```php
-<?php
-
 echo $engine->render('table.php', function ($tpl) {
     return $tpl['table']([
         '{class}' => 'table',
@@ -177,17 +200,15 @@ Placeholder closures receive:
 3. the `TemplateEngine`
 4. the current template namespace
 
-This makes it possible to build more advanced compositions without resolving everything up front.
+This allows advanced composition without resolving everything up front.
 
 ---
 
-# Using `getCollection()` directly
+## `getCollection()` and `at()`
 
-`render()` is the simplest API, but you can also access a template collection directly.
+`render()` is the simplest API, but you can also work directly with the collection.
 
 ```php
-<?php
-
 $tpl = $engine->getCollection('table.php');
 
 echo $tpl['table']([
@@ -196,335 +217,277 @@ echo $tpl['table']([
 ]);
 ```
 
-This is useful when you want to reuse a template collection across several rendering operations.
+### Strict access with `at()`
+
+Use `at()` when the path must exist.
+
+```php
+$row = $tpl->at('row');
+echo $row(['{text}' => 'Required template fragment']);
+```
+
+Use `at()` when:
+
+- the template path is part of your contract
+- missing entries should fail fast
+- you want explicit, strict access
+
+```php
+$layout = $tpl->at('layout.page');
+```
+
+### Safe access
+
+If you also expose a nullable lookup such as `find()`, use it when the path is optional.
+
+```php
+$maybeDebug = $tpl->find('layout.debug');
+```
+
+Use `at()` for required paths.  
+Use a nullable lookup for optional paths.
 
 ---
 
-# Register in-memory templates with `addCustom()`
+## Why `lazyRequire()` matters
 
-You do not need filesystem templates for every use case. You can register templates programmatically.
+For large template systems, `lazyRequire()` is one of the most important features.
+
+It lets you split templates into many files without paying the cost of loading and building every file on every request.
+
+### Eager inclusion with `require()`
+
+`require()` loads the referenced template file immediately.
+
+Use it when the sub-template is always needed for the current template.
 
 ```php
-<?php
-
-use DalPraS\SmartTemplate\TemplateEngine;
-
-$engine = new TemplateEngine();
-
-$engine->addCustom('ui', [
-    'badge' => '<span class="badge badge-{type}">{label}</span>',
-    'button' => '<button type="{buttonType}" class="{class}">{label}</button>',
-]);
-
-$ui = $engine->getCollection('ui');
-
-echo $ui['badge']([
-    '{type}'  => 'success',
-    '{label}' => 'Saved',
-]);
-
-echo $ui['button']([
-    '{buttonType}' => 'button',
-    '{class}'      => 'btn btn-primary',
-    '{label}'      => 'Continue',
-]);
+return [
+    'icons' => $this->require(__DIR__ . '/_icons.php'),
+];
 ```
+
+### Lazy inclusion with `lazyRequire()`
+
+`lazyRequire()` defers loading the referenced file until that branch is actually accessed.
+
+Use it when the sub-template group is large, optional, or rarely used.
+
+```php
+return [
+    'article' => $this->lazyRequire(__DIR__ . '/_articles.php'),
+    'layout'  => $this->lazyRequire(__DIR__ . '/_layouts.php'),
+    'module'  => $this->lazyRequire(__DIR__ . '/_modules.php'),
+];
+```
+
+### When to prefer `lazyRequire()`
+
+Prefer `lazyRequire()` when:
+
+- you have many template groups
+- only a subset is used per request
+- you want a clean folder structure without slowing down common paths
+- you want to grow the template library over time
+
+### Rule of thumb
+
+- use `require()` for always-needed fragments
+- use `lazyRequire()` for optional or large branches
 
 ---
 
-# Organizing nested templates
+## Recommended structure for large projects
 
-Because nested arrays are wrapped into `RenderCollection` objects, you can group fragments by feature.
+A very effective pattern is to have one small default entry file that exposes the main groups, and then split each group into its own file.
 
-```php
-<?php
+This keeps the API organized while preserving speed.
 
-$engine->addCustom('mail', [
-    'layout' => [
-        'page' => <<<HTML
-<div class="mail-layout">
-    <header>{header}</header>
-    <main>{content}</main>
-</div>
-HTML,
-    ],
-    'partials' => [
-        'title' => '<h1>{text}</h1>',
-    ],
-]);
-
-$mail = $engine->getCollection('mail');
-
-echo $mail['layout']['page']([
-    '{header}' => $mail['partials']['title']([
-        '{text}' => 'Newsletter',
-    ]),
-    '{content}' => '<p>Welcome.</p>',
-]);
-```
-
----
-
-# Rendering attributes
-
-The engine includes an `attributes()` helper for turning arrays into HTML attributes.
-
-```php
-<?php
-
-use DalPraS\SmartTemplate\TemplateEngine;
-
-$engine = new TemplateEngine();
-
-$attrs = $engine->attributes([
-    'id'    => 'user[profile][email]',
-    'title' => 'Email address',
-    'class' => 'form-control',
-]);
-
-echo '<input ' . $attrs . ' />';
-```
-
-Example output:
-
-```html
-<input id="user-profile-email" title="Email address" class="form-control" />
-```
-
-Notes:
-
-- `id` values are normalized into an HTML-friendly form
-- some attribute values such as `id`, `title`, `name`, and `alt` can be escaped through the configured helpers
-- closures are supported as attribute values and are resolved before rendering
-
-Example with a lazy value:
-
-```php
-<?php
-
-echo '<button ' . $engine->attributes([
-    'class' => fn () => 'btn btn-primary',
-    'title' => fn () => 'Save changes',
-]) . '>Save</button>';
-```
-
----
-
-# Cross-template composition
-
-Templates can compose other templates by using the same engine instance.
-
-`templates/toolbar.php`
+### Example default template file
 
 ```php
 <?php
 
 return [
-    'header' => '<div class="toolbar">{text}</div>',
+    'article' => $this->lazyRequire(__DIR__ . '/_articles.php'),
+    'form'    => $this->lazyRequire(__DIR__ . '/../../vendor/dalpras/form-zero/src/Template/form.inc.php'),
+    'module'  => $this->lazyRequire(__DIR__ . '/_modules.php'),
+    'layout'  => $this->lazyRequire(__DIR__ . '/_layouts.php'),
+    'service' => $this->lazyRequire(__DIR__ . '/_services.php'),
+
+    'picture' => [
+        'picture' => <<<HTML
+            <picture>{sources}{image}</picture>
+            HTML,
+        'image' => <<<HTML
+            <img class="{class}" src="{src}" alt="{alt}" role="img" focusable="false" {attributes}>
+            HTML,
+        'source' => <<<HTML
+            <source srcset="{src}" media="{media}">
+            HTML,
+    ],
 ];
 ```
 
-```php
-<?php
+### Why this structure works well
 
+- the root file stays small and readable
+- each domain has its own file
+- new domains can be added without touching existing branches much
+- unused branches are never loaded when they are behind `lazyRequire()`
+- the public API stays predictable
+
+For example:
+
+```php
+$tpl = $engine->getCollection('default.php');
+
+echo $tpl->at('picture.image')([
+    '{class}'      => 'img-fluid',
+    '{src}'        => '/img/demo.jpg',
+    '{alt}'        => 'Demo image',
+    '{attributes}' => '',
+]);
+```
+
+And when needed:
+
+```php
+echo $tpl->at('article.card')([
+    '{title}' => 'Hello',
+    '{body}'  => 'Loaded only when article templates are accessed.',
+]);
+```
+
+In this setup, adding a new `_marketing.php` or `_emails.php` file does not affect the speed of requests that never touch those branches, as long as they are wired with `lazyRequire()`.
+
+---
+
+## Suggested file layout
+
+```text
+templates/
+├── default.php
+├── _articles.php
+├── _layouts.php
+├── _modules.php
+├── _services.php
+└── partials/
+```
+
+A good convention is:
+
+- `default.php` as the entry collection
+- `_*.php` files for grouped template branches
+- inline arrays only for very small always-used fragments
+- `lazyRequire()` for large groups
+- `require()` only where eager loading is intentional
+
+---
+
+## Example usage pattern
+
+```php
+use DalPraS\SmartTemplate\TemplateEngine;
+
+$engine = new TemplateEngine(__DIR__ . '/templates');
+$tpl = $engine->getCollection('default.php');
+
+$card = $tpl->at('article.card')([
+    '{title}' => 'News title',
+    '{body}'  => 'Article body',
+]);
+
+$image = $tpl->at('picture.image')([
+    '{class}'      => 'img-fluid',
+    '{src}'        => '/img/example.jpg',
+    '{alt}'        => 'Example',
+    '{attributes}' => 'loading="lazy"',
+]);
+
+echo $tpl->at('layout.page')([
+    '{content}' => $card . $image,
+]);
+```
+
+This scales well because:
+
+- `picture.*` is immediately available in the root file
+- `article.*` is loaded only when requested
+- `layout.*` is loaded only when requested
+
+---
+
+## Cross-template rendering
+
+You can render another template file from inside a placeholder closure when needed.
+
+```php
 echo $engine->render('table.php', function ($tpl) use ($engine) {
     return $tpl['table']([
-        '{class}' => 'table',
+        '{class}' => 'text-end',
         '{rows}'  => function () use ($engine) {
-            return $engine->render('toolbar.php', fn ($toolbar) => $toolbar['header']([
-                '{text}' => 'Rendered from another template',
-            ]));
+            return $engine->render('toolbar.php', fn($toolbar) =>
+                $toolbar['header']([
+                    '{text}' => 'hello different template toolbar',
+                ])
+            );
         },
     ]);
 });
 ```
 
-This approach is useful when you want to keep components in separate files but still assemble them in one render operation.
+---
+
+## Performance notes
+
+Smart Template is built around low-overhead rendering:
+
+- direct named substitution
+- lazy compilation
+- lazy branch loading
+- PHP-native structures
+- OPcache-friendly execution
+
+For best performance:
+
+- keep the root template file small
+- split large groups into separate files
+- use `lazyRequire()` for optional branches
+- use `require()` only for always-needed dependencies
+- use `at()` for strict access in application code
+
+With this structure, you can keep a large, well-organized template library without slowing down common rendering paths.
 
 ---
 
-# Return values and stringification
+## Responsibility
 
-When placeholders are substituted, the engine converts values to strings.
+This engine does not automatically solve:
 
-Common cases are handled for you:
+- XSS protection
+- output escaping strategy
+- excessive presentation complexity
 
-- strings
-- integers and floats
-- booleans
-- `null`
-- `DateTimeInterface`
-- enums
-- `Stringable`
-- arrays and objects through JSON-style encoding
-
-That means simple values usually work out of the box:
-
-```php
-<?php
-
-$engine->addCustom('demo', [
-    'line' => '<p>{value}</p>',
-]);
-
-$demo = $engine->getCollection('demo');
-
-echo $demo['line']([
-    '{value}' => new DateTimeImmutable('2026-03-24 10:00:00'),
-]);
-```
-
-Even so, for HTML output, you should still decide explicitly where escaping belongs in your application.
+Use proper escaping and keep template contracts explicit.
 
 ---
 
-# Recommended usage pattern
+## Summary
 
-A reliable way to use this package is:
+Smart Template works best when you treat templates as structured PHP collections.
 
-1. Keep template files focused on markup fragments
-2. Use named placeholders consistently, including the braces in the keys
-3. Build complex sections by composing smaller template leaves
-4. Escape untrusted content at the application boundary
-5. Reuse a `TemplateEngine` instance instead of creating a new one per render
+Recommended approach:
 
-A good style is to keep templates simple and move business decisions outside the template strings.
+- one small entry file
+- grouped template files by domain
+- `lazyRequire()` for optional branches
+- `require()` for required branches
+- `at()` for strict path access
 
----
+That combination gives you:
 
-# Error handling
-
-`getCollection()` throws when the template cannot be found.
-
-That means this pattern is safe:
-
-```php
-<?php
-
-try {
-    $tpl = $engine->getCollection('missing.php');
-} catch (\Throwable $e) {
-    // log or recover
-}
-```
-
-If you render from the filesystem, template files must return an array. Returning any other type from a template file is an error.
-
----
-
-# Filesystem lookup
-
-When a directory is provided, the engine scans it and can resolve templates by name or partial path suffix.
-
-Example:
-
-```php
-<?php
-
-$engine = new TemplateEngine(__DIR__ . '/templates');
-
-$engine->getCollection('table.php');
-$engine->getCollection('emails/newsletter.php');
-```
-
-Internally, template files are indexed by basename and matched by suffix, so keep filenames clear and avoid ambiguous duplicates where possible.
-
----
-
-# Example project structure
-
-```text
-templates/
-├── card.php
-├── table.php
-└── emails/
-    └── newsletter.php
-```
-
-Example template file:
-
-```php
-<?php
-
-return [
-    'layout' => [
-        'page' => '<div class="page">{content}</div>',
-    ],
-    'partials' => [
-        'title' => '<h1>{text}</h1>',
-    ],
-];
-```
-
----
-
-# Security notes
-
-This package gives you control, but it does not automatically make HTML safe.
-
-Be careful with:
-
-- user-controlled HTML
-- attribute values
-- URLs
-- inline JavaScript
-- mixed trusted and untrusted content
-
-Treat output escaping as an application concern. Use your escaper/helpers consistently when rendering untrusted data.
-
----
-
-# When to choose this package
-
-Choose Smart Template when:
-
-- you want a small PHP-native renderer
-- you prefer arrays and closures over a custom template language
-- you are rendering many small reusable fragments
-- you want explicit control over composition
-
-Consider a larger templating system when:
-
-- your team wants a strict separation between PHP and views
-- you need inheritance, blocks, macros, or filters
-- you want a larger ecosystem of integrations and tooling
-
----
-
-# Minimal reference
-
-## `TemplateEngine`
-
-```php
-new TemplateEngine(?string $directory = null, ?string $default = null, bool $preload = true)
-```
-
-Main methods:
-
-- `render(string $name, Closure $callback): mixed`
-- `getCollection(string $name): RenderCollection`
-- `addCustom(string $namespace, array $templates): static`
-- `attributes(array $attribs): string`
-
-## `RenderCollection`
-
-Collections behave like nested arrays with lazy wrapping and lazy compilation.
-
-Typical usage:
-
-```php
-<?php
-
-$tpl = $engine->getCollection('card.php');
-
-echo $tpl['card']([
-    '{title}' => 'Hi',
-    '{body}'  => 'Example',
-]);
-```
-
----
-
-# License
-
-See the package metadata in `composer.json` / Packagist and keep the README aligned with that metadata.
+- readable template organization
+- easy growth over time
+- fast common-case rendering
+- explicit access semantics
