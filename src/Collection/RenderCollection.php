@@ -431,7 +431,7 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      *
      * @throws OutOfBoundsException
      */
-    public function getPath(string $path, string $separator = '.'): mixed
+    public function at(string $path, string $separator = '.'): mixed
     {
         if (array_key_exists($path, $this->pathCache)) {
             return $this->pathCache[$path];
@@ -451,13 +451,13 @@ final class RenderCollection implements ArrayAccess, IteratorAggregate, Countabl
      * Retrieve a nested value using a safe path lookup.
      *
      * This method:
-     * - supports slash-separated paths by default, such as "layout/menu/mobile"
+     * - supports dot-separated paths by default, such as "layout.menu.mobile"
      * - uses lazy wrapping/compilation during traversal
      * - returns null if the path cannot be resolved
      *
      * Note:
      * A returned null may also mean the resolved value itself is null.
-     * Use getPath() if strict missing-path detection is required.
+     * Use get() if strict missing-path detection is required.
      */
     public function find(string $path, string $delimiter = '.'): mixed
     {
