@@ -111,11 +111,11 @@ class TemplateEngine
      */
     public function render(string $name, Closure $callback): mixed
     {
-        $collection = $this->getCollection($name);
+        $collection = $this->collection($name);
         return $callback($collection, $name) ?? '';
     }
 
-    public function getCollection(string $name): RenderCollection
+    public function collection(string $name): RenderCollection
     {
         $collection = $this->renders[$name] ?? null;
 

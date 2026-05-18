@@ -204,12 +204,12 @@ This allows advanced composition without resolving everything up front.
 
 ---
 
-## `getCollection()` and `at()`
+## `collection()` and `at()`
 
 `render()` is the simplest API, but you can also work directly with the collection.
 
 ```php
-$tpl = $engine->getCollection('table.php');
+$tpl = $engine->collection('table.php');
 
 echo $tpl['table']([
     '{class}' => 'table',
@@ -340,7 +340,7 @@ return [
 For example:
 
 ```php
-$tpl = $engine->getCollection('default.php');
+$tpl = $engine->collection('default.php');
 
 echo $tpl->at('picture.image')([
     '{class}'      => 'img-fluid',
@@ -391,7 +391,7 @@ A good convention is:
 use DalPraS\SmartTemplate\TemplateEngine;
 
 $engine = new TemplateEngine(__DIR__ . '/templates');
-$tpl = $engine->getCollection('default.php');
+$tpl = $engine->collection('default.php');
 
 $card = $tpl->at('article.card')([
     '{title}' => 'News title',
