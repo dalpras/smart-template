@@ -141,14 +141,6 @@ class TemplateEngine
         return $this;
     }
 
-    /**
-     * Backward-compatible alias for register().
-     */
-    public function addCustom(string $namespace, array $templates): static
-    {
-        return $this->register($namespace, $templates);
-    }
-
     public function setDefaultNamespace(string $namespace): static
     {
         if (!isset($this->renders[$namespace])) {
