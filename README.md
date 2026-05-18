@@ -39,7 +39,9 @@ composer require dalpras/smart-template
 
 ## Mental model
 
-A template collection is an array. Each entry can be:
+A template collection is an array registered under a namespace.
+
+Each entry can be:
 
 - a **string** with placeholders such as `{title}` or `{rows}`
 - a **closure**
@@ -63,7 +65,7 @@ If a placeholder value is itself a closure, the engine resolves it before substi
 
 # Quick start
 
-## 1) Create a template preset
+## 1) Create a preset
 
 ```php
 <?php
@@ -77,9 +79,10 @@ final class UiPreset
     public static function register(
         TemplateEngine $engine,
         string $namespace = self::NAMESPACE,
+        array $overrides = [],
         bool $default = true,
     ): TemplateEngine {
-        return $engine->register($namespace, [
+        $engine->register($namespace, [
             'card' => <<<'HTML'
 <section class="card">
     <h2>{title}</h2>
@@ -87,6 +90,12 @@ final class UiPreset
 </section>
 HTML,
         ], default: $default);
+
+        if ($overrides !== []) {
+            $engine->register($namespace, $overrides);
+        }
+
+        return $engine;
     }
 }
 ```
@@ -127,7 +136,7 @@ Output:
 
 A preset is a class that registers templates into the engine.
 
-Presets replace automatic filesystem loading. The engine does not scan directories or resolve template names from the filesystem anymore.
+Presets replace automatic filesystem loading. The engine does not scan directories or resolve template names from the filesystem.
 
 ```php
 $engine = new TemplateEngine();
@@ -165,34 +174,224 @@ $engine->register('ui', $templates, default: true);
 
 ---
 
-# Loading templates from PHP files
+# PresetInterface
 
-The engine still provides `require()` as a low-level helper for presets.
-
-This is explicit loading, not filesystem discovery.
+Presets can implement `PresetInterface`.
 
 ```php
-final class UiPreset
+<?php
+
+declare(strict_types=1);
+
+namespace DalPraS\SmartTemplate\Preset;
+
+use DalPraS\SmartTemplate\TemplateEngine;
+
+interface PresetInterface
+{
+    public static function register(
+        TemplateEngine $engine,
+        string $namespace = '',
+        array $overrides = [],
+        bool $default = true,
+    ): TemplateEngine;
+}
+```
+
+A preset may replace an empty namespace with its own default namespace:
+
+```php
+$namespace = $namespace !== '' ? $namespace : self::NAMESPACE;
+```
+
+---
+
+# Built-in HTML preset
+
+The built-in HTML preset registers the HTML templates under a namespace.
+
+```php
+use DalPraS\SmartTemplate\Preset\HtmlPreset;
+use DalPraS\SmartTemplate\TemplateEngine;
+
+$engine = new TemplateEngine();
+
+HtmlPreset::register($engine);
+
+$html = $engine->collection();
+
+echo $html['div']([
+    '{attributes}' => 'class="box"',
+    '{body}' => 'Hello',
+]);
+```
+
+Register it under a custom namespace:
+
+```php
+HtmlPreset::register($engine, namespace: 'html', default: false);
+```
+
+Then render it explicitly:
+
+```php
+echo $engine->render('html', function ($html) {
+    return $html['div']([
+        '{attributes}' => 'class="box"',
+        '{body}' => 'Hello',
+    ]);
+});
+```
+
+A typical `HtmlPreset` implementation:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace DalPraS\SmartTemplate\Preset;
+
+use DalPraS\SmartTemplate\Collection\RenderCollection;
+use DalPraS\SmartTemplate\TemplateEngine;
+
+final class HtmlPreset implements PresetInterface
+{
+    public const NAMESPACE = 'html';
+
+    public static function register(
+        TemplateEngine $engine,
+        string $namespace = '',
+        array $overrides = [],
+        bool $default = true,
+    ): TemplateEngine {
+        $namespace = $namespace !== '' ? $namespace : self::NAMESPACE;
+
+        $templates = $engine->require(self::path());
+
+        if (!is_array($templates)) {
+            throw new \RuntimeException('HtmlPreset root template must return an array.');
+        }
+
+        $engine->register($namespace, $templates, default: $default);
+
+        if ($overrides !== []) {
+            $engine->register($namespace, $overrides);
+        }
+
+        return $engine;
+    }
+
+    public static function collection(
+        TemplateEngine $engine,
+        ?string $namespace = self::NAMESPACE,
+    ): RenderCollection {
+        return $engine->collection($namespace);
+    }
+
+    public static function path(): string
+    {
+        return dirname(__DIR__, 2) . '/resources/templates/html.php';
+    }
+}
+```
+
+---
+
+# Application UI preset example
+
+An application preset can register the built-in HTML preset and merge application templates into the same namespace.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Template;
+
+use DalPraS\SmartTemplate\Collection\RenderCollection;
+use DalPraS\SmartTemplate\Preset\HtmlPreset;
+use DalPraS\SmartTemplate\Preset\PresetInterface;
+use DalPraS\SmartTemplate\TemplateEngine;
+
+final class UiPreset implements PresetInterface
 {
     public const NAMESPACE = 'ui';
 
     public static function register(
         TemplateEngine $engine,
-        string $templatesDir,
         string $namespace = self::NAMESPACE,
+        array $overrides = [],
         bool $default = true,
     ): TemplateEngine {
-        $templates = $engine->require(
-            rtrim($templatesDir, '/\\') . DIRECTORY_SEPARATOR . 'default.php'
+        HtmlPreset::register(
+            engine: $engine,
+            namespace: $namespace,
+            default: $default,
         );
 
+        $templates = $engine->require(self::path());
+
         if (!is_array($templates)) {
-            throw new RuntimeException('Preset template file must return an array.');
+            throw new \RuntimeException(
+                'UiPreset template file must return an array: ' . self::path()
+            );
         }
 
-        return $engine->register($namespace, $templates, default: $default);
+        $engine->register($namespace, $templates);
+
+        if ($overrides !== []) {
+            $engine->register($namespace, $overrides);
+        }
+
+        return $engine;
     }
+
+    public static function path(): string
+    {
+        return dirname(__DIR__, 2) . '/templates/default.php';
+    }
+
+    public static function collection(
+        TemplateEngine $engine,
+        ?string $namespace = self::NAMESPACE,
+    ): RenderCollection {
+        return $engine->collection($namespace);
+    }
+
 }
+```
+
+Usage:
+
+```php
+$engine = new TemplateEngine();
+
+UiPreset::register($engine);
+
+$ui = $engine->collection();
+
+echo $ui['button']([
+    '{label}' => 'Save',
+]);
+```
+
+---
+
+# Loading templates from PHP files
+
+The engine provides `require()` as a low-level helper for presets.
+
+This is explicit loading, not filesystem discovery.
+
+```php
+$templates = $engine->require(__DIR__ . '/templates/default.php');
+
+if (!is_array($templates)) {
+    throw new RuntimeException('Template file must return an array.');
+}
+
+$engine->register('ui', $templates);
 ```
 
 Example template file:
@@ -216,80 +415,56 @@ HTML,
 
 ---
 
-# Built-in HTML preset
+# Registering and extending templates
 
-If using the built-in HTML preset:
+Use `register()` to create a namespace or merge templates into an existing namespace.
+
+Create a namespace:
 
 ```php
-use DalPraS\SmartTemplate\Preset\HtmlPreset;
-use DalPraS\SmartTemplate\TemplateEngine;
+$engine->register('ui', [
+    'button' => '<button>{label}</button>',
+]);
+```
 
-$engine = new TemplateEngine();
+Merge more templates into the same namespace:
 
-HtmlPreset::register($engine);
+```php
+$engine->register('ui', [
+    'card' => '<section>{body}</section>',
+]);
+```
 
-$html = $engine->collection();
+Override an existing template:
 
-echo $html['div']([
-    '{attributes}' => 'class="box"',
+```php
+$engine->register('ui', [
+    'button' => '<button class="btn">{label}</button>',
+]);
+```
+
+Result:
+
+```php
+$ui = $engine->collection('ui');
+
+echo $ui['button']([
+    '{label}' => 'Save',
+]);
+
+echo $ui['card']([
     '{body}' => 'Hello',
 ]);
 ```
 
-You can register it under a custom namespace:
+The rule is:
 
 ```php
-HtmlPreset::register($engine, namespace: 'html');
+register('new_namespace', $templates);      // create
+register('existing_namespace', $templates); // merge or override
 ```
 
-Then render it explicitly:
-
-```php
-echo $engine->render('html', function ($html) {
-    return $html['div']([
-        '{attributes}' => 'class="box"',
-        '{body}' => 'Hello',
-    ]);
-});
-```
-
----
-
-# Registering templates directly
-
-You can register templates without creating a preset class.
-
-```php
-$engine = new TemplateEngine();
-
-$engine->register('ui', [
-    'badge' => '<span class="badge badge-{type}">{label}</span>',
-    'button' => '<button type="{buttonType}" class="{class}">{label}</button>',
-]);
-
-$ui = $engine->collection('ui');
-
-echo $ui['badge']([
-    '{type}' => 'success',
-    '{label}' => 'Saved',
-]);
-
-echo $ui['button']([
-    '{buttonType}' => 'button',
-    '{class}' => 'btn btn-primary',
-    '{label}' => 'Continue',
-]);
-```
-
-`addCustom()` is kept as a backward-compatible alias:
-
-```php
-$engine->addCustom('ui', [
-    'badge' => '<span>{label}</span>',
-]);
-```
-
-New code should prefer `register()`.
+`addCustom()` may remain as a backward-compatible alias, but new code should use `register()`.
 
 ---
 
@@ -309,13 +484,13 @@ echo $ui['title']([
 ]);
 ```
 
-You can set the default namespace manually:
+Set the default namespace manually:
 
 ```php
 $engine->setDefaultNamespace('ui');
 ```
 
-Or access it explicitly:
+Access it explicitly:
 
 ```php
 $ui = $engine->defaultCollection();
@@ -359,7 +534,7 @@ echo $mail['layout']['page']([
 
 # Lazy template files
 
-A preset file can reference another file lazily.
+A template file can reference another file lazily.
 
 ```php
 <?php
@@ -545,13 +720,12 @@ For HTML output, escaping is still your application's responsibility.
 A reliable way to use this package is:
 
 1. Register templates through presets.
-2. Keep template strings focused on markup.
-3. Use named placeholders consistently, including braces in keys.
-4. Build complex sections by composing smaller template leaves.
-5. Escape untrusted content at the application boundary.
-6. Reuse a `TemplateEngine` instance instead of creating one per render.
-
-A good style is to keep templates simple and move business decisions outside template strings.
+2. Use semantic namespaces such as `html`, `ui`, or `mail`.
+3. Use `register()` again to merge into or override an existing namespace.
+4. Keep template strings focused on markup.
+5. Use named placeholders consistently, including braces in keys.
+6. Escape untrusted content at the application boundary.
+7. Reuse a `TemplateEngine` instance instead of creating one per render.
 
 ---
 
@@ -585,14 +759,14 @@ Template files used by presets should return arrays.
 
 ```text
 src/
-├── Preset/
+├── Template/
 │   └── UiPreset.php
 └── templates/
     ├── default.php
     └── partials.php
 ```
 
-`src/Preset/UiPreset.php`:
+`src/Template/UiPreset.php`:
 
 ```php
 <?php
@@ -707,6 +881,17 @@ addCustomParamCallback(string $name, Closure $callback): static
 removeCustomParamCallback(string $name): bool
 ```
 
+## `PresetInterface`
+
+```php
+public static function register(
+    TemplateEngine $engine,
+    string $namespace = '',
+    array $overrides = [],
+    bool $default = true,
+): TemplateEngine;
+```
+
 ## `RenderCollection`
 
 Collections behave like nested arrays with lazy wrapping and lazy compilation.
@@ -740,7 +925,7 @@ The new model is preset-based:
 ```php
 $engine = new TemplateEngine();
 
-UiPreset::register($engine, $templatesDir);
+UiPreset::register($engine);
 
 $engine->renderDefault(...);
 ```
@@ -752,6 +937,16 @@ $engine->render('ui', ...);
 ```
 
 The engine no longer scans template directories or resolves template files by name. Files are loaded only when a preset explicitly calls `require()`.
+
+Avoid using filenames as namespaces:
+
+```php
+// Avoid
+public const NAMESPACE = 'default.php';
+
+// Prefer
+public const NAMESPACE = 'ui';
+```
 
 ---
 
