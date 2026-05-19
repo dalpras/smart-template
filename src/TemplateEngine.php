@@ -231,16 +231,16 @@ class TemplateEngine
     /**
      * Render HTML attributes.
      */
-    public function attributes(array $attribs): string
+    public function attributes(array $attributes): string
     {
-        if ($attribs === []) {
+        if ($attributes === []) {
             return '';
         }
 
         $render = $this->attributeRender;
         $out = [];
 
-        foreach ($attribs as $name => $value) {
+        foreach ($attributes as $name => $value) {
             if ($value instanceof Closure) {
                 $value = $value();
             }
