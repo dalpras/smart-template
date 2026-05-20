@@ -42,11 +42,11 @@ return [
         HTML,
 
     'dt' => <<<HTML
-        <dt {attributes}>{text}</dt>
+        <dt {attributes}>{content}</dt>
         HTML,
 
     'dd' => <<<HTML
-        <dd {attributes}>{text}</dd>
+        <dd {attributes}>{content}</dd>
         HTML,        
 
     'picture' => <<<HTML
