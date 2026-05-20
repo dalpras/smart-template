@@ -9,6 +9,9 @@ use DalPraS\SmartTemplate\Collection\RenderCollection;
 use DalPraS\SmartTemplate\Exception\TemplateNotFoundException;
 use DalPraS\SmartTemplate\Plugins\HelpersInterface;
 
+/**
+ * Small PHP-native template engine based on collections, lazy compilation and named placeholders.
+ */
 class TemplateEngine
 {
     /**
@@ -19,33 +22,51 @@ class TemplateEngine
     private array $renders = [];
 
     /**
-     * Default namespace used by collection() and renderDefault().
+     * Default namespace used when no namespace is explicitly passed.
      */
     private ?string $defaultNamespace = null;
 
     /**
-     * Placeholder callbacks.
+     * Exact placeholder callbacks, for example {attributes} or {class}.
      *
      * @var array<string, Closure>
      */
     private array $customParamCallbacks = [];
 
     /**
-     * Builds a single attribute string.
+     * Call-site token modifiers, for example TOKEN|upperCase.
+     *
+     * @var array<string, Closure>
+     */
+    private array $customParamModifiers = [];
+
+    /**
+     * Separator used in call-site modifiers, e.g. {content}|upperCase.
+     */
+    private string $customParamModifierSeparator = '|';
+
+    /**
+     * Builds a single HTML attribute string.
      */
     private Closure $attributeComposer;
 
     /**
-     * Renders an attribute after normalization/escaping.
+     * Normalizes and renders one attribute.
      */
     protected Closure $attributeRender;
 
+    /**
+     * Optional application helpers.
+     */
     protected ?HelpersInterface $helpers = null;
 
+    /**
+     * Configure default attribute rendering.
+     */
     public function __construct()
     {
-        $this->attributeComposer = static fn($name, $value): string
-            => $name . '="' . str_replace('"', '&quot;', (string) $value) . '"';
+        $this->attributeComposer = static fn($name, $value): string =>
+            $name . '="' . str_replace('"', '&quot;', (string) $value) . '"';
 
         $this->attributeRender = function ($name, $value): string {
             $value = match ($name) {
@@ -53,7 +74,10 @@ class TemplateEngine
                     $this->normalizeId((string) $value)
                 ) ?? $this->normalizeId((string) $value),
 
-                'title', 'name', 'alt' => $this->helpers?->escaper()?->escapeHtmlAttr(
+                'title',
+                'name',
+                'alt',
+                'aria-label' => $this->helpers?->escaper()?->escapeHtmlAttr(
                     (string) $value
                 ) ?? (string) $value,
 
@@ -65,7 +89,7 @@ class TemplateEngine
     }
 
     /**
-     * Render a named collection.
+     * Render a named template collection.
      */
     public function render(string $namespace, Closure $callback): mixed
     {
@@ -73,7 +97,7 @@ class TemplateEngine
     }
 
     /**
-     * Render the default collection.
+     * Render the default template collection.
      */
     public function renderDefault(Closure $callback): mixed
     {
@@ -83,26 +107,28 @@ class TemplateEngine
     }
 
     /**
-     * Get a collection, or the default one when omitted.
+     * Return a template collection by namespace, or the default collection when omitted.
      */
     public function collection(?string $namespace = null): RenderCollection
     {
         $namespace ??= $this->getDefaultNamespaceOrFail();
 
-        return $this->renders[$namespace]
-            ?? throw new TemplateNotFoundException(
-                "Template collection '{$namespace}' is not registered."
-            );
+        return $this->renders[$namespace] ?? throw new TemplateNotFoundException(
+            "Template collection '{$namespace}' is not registered."
+        );
     }
 
     /**
-     * Get the default collection.
+     * Return the default template collection.
      */
     public function defaultCollection(): RenderCollection
     {
         return $this->collection();
     }
 
+    /**
+     * Check whether a namespace is registered.
+     */
     public function hasCollection(string $namespace): bool
     {
         return isset($this->renders[$namespace]);
@@ -128,8 +154,8 @@ class TemplateEngine
         $collection->setRoot($collection);
 
         $collection->setLazyCompiler(
-            fn(mixed $value, string|int $key, RenderCollection $self)
-                => $this->compileLazy($namespace, $value, $self)
+            fn(mixed $value, string|int $key, RenderCollection $self) =>
+            $this->compileLazy($namespace, $value, $self)
         );
 
         $this->renders[$namespace] = $collection;
@@ -141,6 +167,9 @@ class TemplateEngine
         return $this;
     }
 
+    /**
+     * Set the default collection namespace.
+     */
     public function setDefaultNamespace(string $namespace): static
     {
         if (!isset($this->renders[$namespace])) {
@@ -154,21 +183,26 @@ class TemplateEngine
         return $this;
     }
 
+    /**
+     * Return the current default namespace, if any.
+     */
     public function getDefaultNamespace(): ?string
     {
         return $this->defaultNamespace;
     }
 
+    /**
+     * Return the current default namespace or fail clearly.
+     */
     private function getDefaultNamespaceOrFail(): string
     {
-        return $this->defaultNamespace
-            ?? throw new TemplateNotFoundException(
-                'No default template collection is registered.'
-            );
+        return $this->defaultNamespace ?? throw new TemplateNotFoundException(
+            'No default template collection is registered.'
+        );
     }
 
     /**
-     * Compile lazy template values on first access.
+     * Compile lazy template values only when they are first accessed.
      */
     private function compileLazy(string $namespace, mixed $value, RenderCollection $self): mixed
     {
@@ -178,9 +212,10 @@ class TemplateEngine
             if (is_array($loaded)) {
                 $nested = new RenderCollection($loaded);
                 $nested->setRoot($self->getRoot());
+
                 $nested->setLazyCompiler(
-                    fn(mixed $nestedValue, string|int $nestedKey, RenderCollection $nestedSelf)
-                        => $this->compileLazy($namespace, $nestedValue, $nestedSelf)
+                    fn(mixed $nestedValue, string|int $nestedKey, RenderCollection $nestedSelf) =>
+                    $this->compileLazy($namespace, $nestedValue, $nestedSelf)
                 );
 
                 return $nested;
@@ -205,7 +240,7 @@ class TemplateEngine
     }
 
     /**
-     * Explicitly include a template file.
+     * Explicitly include a PHP template file.
      */
     public function require(string $path): mixed
     {
@@ -221,7 +256,7 @@ class TemplateEngine
     }
 
     /**
-     * Create a lazy template-file reference.
+     * Create a lazy reference to a PHP template file.
      */
     public function lazyRequire(string $path): LazyTemplateFile
     {
@@ -229,7 +264,7 @@ class TemplateEngine
     }
 
     /**
-     * Render HTML attributes.
+     * Render an associative array as HTML attributes.
      */
     public function attributes(array $attributes): string
     {
@@ -256,7 +291,7 @@ class TemplateEngine
     }
 
     /**
-     * Convert a template value into a renderer.
+     * Convert a template value into a render callable.
      */
     protected function asRender(
         mixed $value,
@@ -272,19 +307,25 @@ class TemplateEngine
             return function (array $args = []) use ($invokeArgs, $value): string {
                 $resolver = null;
 
-                if ($this->customParamCallbacks !== []) {
+                if ($this->customParamCallbacks !== [] || $this->customParamModifiers !== []) {
                     $resolver = function (array $args): array {
-                        foreach ($args as $tag => &$arg) {
-                            if (isset($this->customParamCallbacks[$tag])) {
-                                $arg = $this->customParamCallbacks[$tag]($arg);
-                            }
+                        if ($this->customParamModifiers !== []) {
+                            $args = $this->resolveCustomParamModifiers($args);
                         }
 
-                        unset($arg);
+                        if ($this->customParamCallbacks !== []) {
+                            foreach ($args as $tag => &$arg) {
+                                if (isset($this->customParamCallbacks[$tag])) {
+                                    $arg = $this->customParamCallbacks[$tag]($arg);
+                                }
+                            }
 
-                        foreach ($this->customParamCallbacks as $k => $cb) {
-                            if (!array_key_exists($k, $args)) {
-                                $args[$k] = $cb(null);
+                            unset($arg);
+
+                            foreach ($this->customParamCallbacks as $k => $cb) {
+                                if (!array_key_exists($k, $args)) {
+                                    $args[$k] = $cb(null);
+                                }
                             }
                         }
 
@@ -304,7 +345,7 @@ class TemplateEngine
     }
 
     /**
-     * Replace named placeholders.
+     * Replace named placeholders in a template string.
      */
     public static function vnsprintf(
         array $invokeArgs,
@@ -327,7 +368,8 @@ class TemplateEngine
             $args = $resolve($args);
         }
 
-        $stringify ??= static fn($v, $key): string => self::defaultStringify($v, $key, $options);
+        $stringify ??= static fn($v, $key): string =>
+            self::defaultStringify($v, $key, $options);
 
         $allSimple = !$hasClosure;
 
@@ -350,7 +392,8 @@ class TemplateEngine
             foreach ($args as $k => $v) {
                 $args[$k] = match (true) {
                     is_string($v) => $v,
-                    is_int($v), is_float($v) => (string) $v,
+                    is_int($v),
+                    is_float($v) => (string) $v,
                     is_bool($v) => $v ? '1' : '0',
                     $v === null => '',
                 };
@@ -366,6 +409,9 @@ class TemplateEngine
         return strtr($template, $args);
     }
 
+    /**
+     * Convert non-scalar placeholder values to strings.
+     */
     private static function defaultStringify(mixed $v, string|int $key, array $options): string
     {
         if (is_string($v)) {
@@ -423,6 +469,9 @@ class TemplateEngine
         return (string) $v;
     }
 
+    /**
+     * Encode a value as JSON with a safe fallback.
+     */
     private static function json(mixed $v): string
     {
         $json = json_encode($v, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -434,6 +483,9 @@ class TemplateEngine
         return $json;
     }
 
+    /**
+     * Replace the attribute render callback.
+     */
     public function setAttributeRender(Closure $attributeRender): static
     {
         $this->attributeRender = $attributeRender;
@@ -441,6 +493,9 @@ class TemplateEngine
         return $this;
     }
 
+    /**
+     * Replace the low-level attribute composer callback.
+     */
     public function setAttributeComposer(Closure $attributeComposer): static
     {
         $this->attributeComposer = $attributeComposer;
@@ -448,19 +503,25 @@ class TemplateEngine
         return $this;
     }
 
+    /**
+     * Return the low-level attribute composer callback.
+     */
     public function getAttributeComposer(): Closure
     {
         return $this->attributeComposer;
     }
 
     /**
-     * Normalize bracket notation for IDs.
+     * Normalize bracket notation into a safe HTML id.
      */
     public function normalizeId(string $value): string
     {
         return trim(strtr($value, ['[' => '-', ']' => '']), '-');
     }
 
+    /**
+     * Register an exact placeholder callback.
+     */
     public function addCustomParamCallback(string $name, Closure $callback): static
     {
         $this->customParamCallbacks[$name] = $callback;
@@ -468,6 +529,9 @@ class TemplateEngine
         return $this;
     }
 
+    /**
+     * Remove an exact placeholder callback.
+     */
     public function removeCustomParamCallback(string $name): bool
     {
         if (!isset($this->customParamCallbacks[$name])) {
@@ -480,6 +544,8 @@ class TemplateEngine
     }
 
     /**
+     * Return all exact placeholder callbacks.
+     *
      * @return array<string, Closure>
      */
     public function getCustomParamCallbacks(): array
@@ -487,11 +553,166 @@ class TemplateEngine
         return $this->customParamCallbacks;
     }
 
+    /**
+     * Register a call-site placeholder modifier.
+     */
+    public function addCustomParamModifier(string $name, Closure $callback): static
+    {
+        $name = trim($name);
+
+        if ($name === '') {
+            throw new \InvalidArgumentException('Custom parameter modifier name cannot be empty.');
+        }
+
+        if (str_contains($name, $this->customParamModifierSeparator)) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    'Custom parameter modifier name cannot contain "%s".',
+                    $this->customParamModifierSeparator
+                )
+            );
+        }
+
+        $this->customParamModifiers[$name] = $callback;
+
+        return $this;
+    }
+
+    /**
+     * Remove a call-site placeholder modifier.
+     */
+    public function removeCustomParamModifier(string $name): bool
+    {
+        if (!isset($this->customParamModifiers[$name])) {
+            return false;
+        }
+
+        unset($this->customParamModifiers[$name]);
+
+        return true;
+    }
+
+    /**
+     * Return all call-site placeholder modifiers.
+     *
+     * @return array<string, Closure>
+     */
+    public function getCustomParamModifiers(): array
+    {
+        return $this->customParamModifiers;
+    }
+
+    /**
+     * Resolve keys like TOKEN|modifier into the base TOKEN.
+     */
+    private function resolveCustomParamModifiers(array $args): array
+    {
+        $separator = $this->customParamModifierSeparator;
+
+        foreach ($args as $rawKey => $value) {
+            if (!is_string($rawKey) || !str_contains($rawKey, $separator)) {
+                continue;
+            }
+
+            [$placeholder, $modifierChain] = explode($separator, $rawKey, 2);
+
+            $placeholder = trim($placeholder);
+            $modifierChain = trim($modifierChain);
+
+            if (!$this->isValidCustomParamToken($placeholder) || $modifierChain === '') {
+                continue;
+            }
+
+            $modifiers = array_values(
+                array_filter(
+                    array_map('trim', explode($separator, $modifierChain)),
+                    static fn(string $modifier): bool => $modifier !== ''
+                )
+            );
+
+            if ($modifiers === []) {
+                continue;
+            }
+
+            foreach ($modifiers as $modifier) {
+                if (!isset($this->customParamModifiers[$modifier])) {
+                    continue;
+                }
+
+                $value = $this->customParamModifiers[$modifier](
+                    $value,
+                    $placeholder,
+                    $modifier,
+                    $rawKey,
+                    $args,
+                    $this
+                );
+            }
+
+            $args[$placeholder] = $value;
+
+            unset($args[$rawKey]);
+        }
+
+        return $args;
+    }
+
+    /**
+     * Set the separator used for call-site modifiers.
+     */
+    public function setCustomParamModifierSeparator(string $separator): static
+    {
+        if ($separator === '') {
+            throw new \InvalidArgumentException(
+                'Custom parameter modifier separator cannot be empty.'
+            );
+        }
+
+        foreach (array_keys($this->customParamModifiers) as $modifier) {
+            if (str_contains($modifier, $separator)) {
+                throw new \InvalidArgumentException(
+                    sprintf(
+                        'Custom parameter modifier separator "%s" conflicts with registered modifier "%s".',
+                        $separator,
+                        $modifier
+                    )
+                );
+            }
+        }
+
+        $this->customParamModifierSeparator = $separator;
+
+        return $this;
+    }
+
+    /**
+     * Return the separator used for call-site modifiers.
+     */
+    public function getCustomParamModifierSeparator(): string
+    {
+        return $this->customParamModifierSeparator;
+    }
+
+    /**
+     * Validate the base token used in template replacement.
+     */
+    private function isValidCustomParamToken(string $token): bool
+    {
+        return $token !== ''
+            && !str_contains($token, $this->customParamModifierSeparator);
+    }
+
+    /**
+     * Return the current helpers instance, if any.
+     */
     public function getHelpers(): ?HelpersInterface
     {
         return $this->helpers;
     }
 
+    /**
+     * Set the helpers instance used by the engine.
+     */
     public function setHelpers(?HelpersInterface $helpers): static
     {
         $this->helpers = $helpers;

@@ -16,12 +16,17 @@ Templates are regular PHP arrays made of strings, callbacks, and nested arrays. 
 - Preset-based template registration
 - In-memory template collections
 - Fine-grained control over escaping and HTML attributes
+- Exact custom parameter callbacks
+- Call-site token modifiers
+- Configurable modifier separator
 
 ## What it is not
 
 This package is **not** a full view framework.
 
-It does not try to replace systems built around inheritance, blocks, macros, filters, or expression languages. It works best when you want explicit PHP control over markup and composition.
+It does not try to replace systems built around inheritance, blocks, macros, filters, or expression languages.
+
+It works best when you want explicit PHP control over markup and composition.
 
 ---
 
@@ -70,9 +75,12 @@ If a placeholder value is itself a closure, the engine resolves it before substi
 ```php
 <?php
 
+namespace App\Template;
+
+use DalPraS\SmartTemplate\PresetInterface;
 use DalPraS\SmartTemplate\TemplateEngine;
 
-final class UiPreset
+final class UiPreset implements PresetInterface
 {
     public const NAMESPACE = 'ui';
 
@@ -84,10 +92,10 @@ final class UiPreset
     ): TemplateEngine {
         $engine->register($namespace, [
             'card' => <<<'HTML'
-<section class="card">
+<div class="card">
     <h2>{title}</h2>
     <div>{body}</div>
-</section>
+</div>
 HTML,
         ], default: $default);
 
@@ -124,10 +132,10 @@ echo $engine->renderDefault(function ($ui) {
 Output:
 
 ```html
-<section class="card">
+<div class="card">
     <h2>Hello</h2>
     <div>This is rendered with Smart Template.</div>
-</section>
+</div>
 ```
 
 ---
@@ -179,81 +187,9 @@ $engine->register('ui', $templates, default: true);
 Presets can implement `PresetInterface`.
 
 ```php
-<?php
-
-declare(strict_types=1);
-
-namespace DalPraS\SmartTemplate\Preset;
-
+use DalPraS\SmartTemplate\PresetInterface;
 use DalPraS\SmartTemplate\TemplateEngine;
-
-interface PresetInterface
-{
-    public static function register(
-        TemplateEngine $engine,
-        string $namespace = '',
-        array $overrides = [],
-        bool $default = true,
-    ): TemplateEngine;
-}
-```
-
-A preset may replace an empty namespace with its own default namespace:
-
-```php
-$namespace = $namespace !== '' ? $namespace : self::NAMESPACE;
-```
-
----
-
-# Built-in HTML preset
-
-The built-in HTML preset registers the HTML templates under a namespace.
-
-```php
-use DalPraS\SmartTemplate\Preset\HtmlPreset;
-use DalPraS\SmartTemplate\TemplateEngine;
-
-$engine = new TemplateEngine();
-
-HtmlPreset::register($engine);
-
-$html = $engine->collection();
-
-echo $html['div']([
-    '{attributes}' => 'class="box"',
-    '{body}' => 'Hello',
-]);
-```
-
-Register it under a custom namespace:
-
-```php
-HtmlPreset::register($engine, namespace: 'html', default: false);
-```
-
-Then render it explicitly:
-
-```php
-echo $engine->render('html', function ($html) {
-    return $html['div']([
-        '{attributes}' => 'class="box"',
-        '{body}' => 'Hello',
-    ]);
-});
-```
-
-A typical `HtmlPreset` implementation:
-
-```php
-<?php
-
-declare(strict_types=1);
-
-namespace DalPraS\SmartTemplate\Preset;
-
 use DalPraS\SmartTemplate\Collection\RenderCollection;
-use DalPraS\SmartTemplate\TemplateEngine;
 
 final class HtmlPreset implements PresetInterface
 {
@@ -261,12 +197,10 @@ final class HtmlPreset implements PresetInterface
 
     public static function register(
         TemplateEngine $engine,
-        string $namespace = '',
+        string $namespace = self::NAMESPACE,
         array $overrides = [],
         bool $default = true,
     ): TemplateEngine {
-        $namespace = $namespace !== '' ? $namespace : self::NAMESPACE;
-
         $templates = $engine->require(self::path());
 
         if (!is_array($templates)) {
@@ -296,6 +230,38 @@ final class HtmlPreset implements PresetInterface
 }
 ```
 
+Usage:
+
+```php
+$engine = new TemplateEngine();
+
+HtmlPreset::register($engine);
+
+$html = $engine->collection();
+
+echo $html['div']([
+    '{attributes}' => 'class="box"',
+    '{body}' => 'Hello',
+]);
+```
+
+Register it under a custom namespace:
+
+```php
+HtmlPreset::register($engine, namespace: 'html', default: false);
+```
+
+Then render it explicitly:
+
+```php
+echo $engine->render('html', function ($html) {
+    return $html['div']([
+        '{attributes}' => 'class="box"',
+        '{body}' => 'Hello',
+    ]);
+});
+```
+
 ---
 
 # Application UI preset example
@@ -303,17 +269,6 @@ final class HtmlPreset implements PresetInterface
 An application preset can register the built-in HTML preset and merge application templates into the same namespace.
 
 ```php
-<?php
-
-declare(strict_types=1);
-
-namespace App\Template;
-
-use DalPraS\SmartTemplate\Collection\RenderCollection;
-use DalPraS\SmartTemplate\Preset\HtmlPreset;
-use DalPraS\SmartTemplate\Preset\PresetInterface;
-use DalPraS\SmartTemplate\TemplateEngine;
-
 final class UiPreset implements PresetInterface
 {
     public const NAMESPACE = 'ui';
@@ -324,12 +279,6 @@ final class UiPreset implements PresetInterface
         array $overrides = [],
         bool $default = true,
     ): TemplateEngine {
-        HtmlPreset::register(
-            engine: $engine,
-            namespace: $namespace,
-            default: $default,
-        );
-
         $templates = $engine->require(self::path());
 
         if (!is_array($templates)) {
@@ -338,7 +287,7 @@ final class UiPreset implements PresetInterface
             );
         }
 
-        $engine->register($namespace, $templates);
+        $engine->register($namespace, $templates, default: $default);
 
         if ($overrides !== []) {
             $engine->register($namespace, $overrides);
@@ -358,7 +307,6 @@ final class UiPreset implements PresetInterface
     ): RenderCollection {
         return $engine->collection($namespace);
     }
-
 }
 ```
 
@@ -401,14 +349,14 @@ Example template file:
 
 return [
     'card' => <<<'HTML'
-<section class="card">
+<div class="card">
     <h2>{title}</h2>
     <div>{body}</div>
-</section>
+</div>
 HTML,
 
     'button' => <<<'HTML'
-<button type="{type}" class="{class}">{label}</button>
+<button>{label}</button>
 HTML,
 ];
 ```
@@ -431,7 +379,7 @@ Merge more templates into the same namespace:
 
 ```php
 $engine->register('ui', [
-    'card' => '<section>{body}</section>',
+    'card' => '<div class="card">{body}</div>',
 ]);
 ```
 
@@ -506,12 +454,8 @@ Nested arrays are wrapped into `RenderCollection` objects.
 $engine->register('mail', [
     'layout' => [
         'page' => <<<'HTML'
-<html>
-<body>
-    {header}
-    {content}
-</body>
-</html>
+{header}
+{content}
 HTML,
     ],
 
@@ -541,7 +485,7 @@ A template file can reference another file lazily.
 
 return [
     'layout' => [
-        'page' => '<main>{content}</main>',
+        'page' => '{content}',
     ],
 
     'partials' => $this->lazyRequire(__DIR__ . '/partials.php'),
@@ -629,14 +573,24 @@ echo '<button ' . $engine->attributes([
 
 ---
 
-# Custom placeholder callbacks
+# Custom parameter callbacks
 
-You can register callbacks that transform or provide placeholder values.
+You can register callbacks that transform or provide exact token values before final substitution.
+
+A common use case is rendering HTML attributes from an array.
 
 ```php
-$engine->addCustomParamCallback('{attributes}', static function ($value) use ($engine): string {
-    return $value === null ? '' : $engine->attributes($value);
-});
+$engine->addCustomParamCallback(
+    '{attributes}',
+    static function ($value) use ($engine): string {
+        return $value === null ? '' : $engine->attributes((array) $value);
+    }
+);
+
+$engine->addCustomParamCallback(
+    '{class}',
+    static fn ($value): string => $value === null ? '' : trim((string) $value)
+);
 ```
 
 Then templates can use `{attributes}` consistently:
@@ -655,6 +609,228 @@ echo $engine->collection('ui')['button']([
 ]);
 ```
 
+Custom parameter callbacks are matched by exact token name.
+
+---
+
+# Call-site token modifiers
+
+Call-site token modifiers let the caller transform a value while keeping the template unchanged.
+
+The modifier is written in the argument key, not inside the template.
+
+Template:
+
+```php
+$engine->register('ui', [
+    'title' => '<h2 class="{class}">{content}</h2>',
+]);
+```
+
+Register a modifier:
+
+```php
+$engine->addCustomParamModifier(
+    'upperCase',
+    static fn (mixed $value): string => mb_strtoupper((string) $value, 'UTF-8')
+);
+```
+
+Usage:
+
+```php
+echo $engine->collection('ui')['title']([
+    '{class}' => 'fs-3',
+    '{content}|upperCase' => 'hello world',
+]);
+```
+
+Output:
+
+```html
+<h2 class="fs-3">HELLO WORLD</h2>
+```
+
+Internally, this:
+
+```php
+[
+    '{content}|upperCase' => 'hello world',
+]
+```
+
+is resolved before rendering as:
+
+```php
+[
+    '{content}' => 'HELLO WORLD',
+]
+```
+
+The template still contains only:
+
+```text
+{content}
+```
+
+## Chained modifiers
+
+Modifiers can be chained.
+
+```php
+$engine->addCustomParamModifier(
+    'trim',
+    static fn (mixed $value): string => trim((string) $value)
+);
+
+$engine->addCustomParamModifier(
+    'upperCase',
+    static fn (mixed $value): string => mb_strtoupper((string) $value, 'UTF-8')
+);
+
+echo $engine->collection('ui')['title']([
+    '{class}' => 'fs-3',
+    '{content}|trim|upperCase' => ' hello world ',
+]);
+```
+
+Output:
+
+```html
+<h2 class="fs-3">HELLO WORLD</h2>
+```
+
+## Modifiers run before parameter callbacks
+
+Modifiers are resolved before custom parameter callbacks.
+
+This is useful when a modifier prepares structured data that a callback will later render.
+
+```php
+$engine->addCustomParamModifier(
+    'primaryButton',
+    static function (mixed $value): array {
+        $attributes = is_array($value) ? $value : [];
+
+        $attributes['class'] = trim(($attributes['class'] ?? '') . ' btn btn-primary');
+
+        return $attributes;
+    }
+);
+
+$engine->addCustomParamCallback(
+    '{attributes}',
+    static fn (mixed $value): string => $value === null
+        ? ''
+        : $engine->attributes((array) $value)
+);
+```
+
+Template:
+
+```php
+$engine->register('ui', [
+    'button' => '<button {attributes}>{content}</button>',
+]);
+```
+
+Usage:
+
+```php
+echo $engine->collection('ui')['button']([
+    '{attributes}|primaryButton' => [
+        'type' => 'submit',
+    ],
+    '{content}' => 'Save',
+]);
+```
+
+Output:
+
+```html
+<button type="submit" class="btn btn-primary">Save</button>
+```
+
+---
+
+# Custom token styles
+
+Smart Template does not require `{...}` tokens.
+
+The token used in the caller only has to match the token used in the template.
+
+For example, this template:
+
+```php
+$engine->register('ui', [
+    'title' => '<h2>%content%</h2>',
+]);
+```
+
+can be rendered with:
+
+```php
+echo $engine->collection('ui')['title']([
+    '%content%|upperCase' => 'hello world',
+]);
+```
+
+The engine resolves `%content%|upperCase` into `%content%`, then replaces `%content%` in the template.
+
+These token styles are all valid:
+
+```php
+'{content}|upperCase'
+'%content%|upperCase'
+'[[content]]|upperCase'
+':content:|upperCase'
+'{{ content }}|upperCase'
+```
+
+The base token must not contain the configured modifier separator.
+
+---
+
+# Configurable modifier separator
+
+The default modifier separator is:
+
+```php
+|
+```
+
+So this works by default:
+
+```php
+echo $engine->collection('ui')['title']([
+    '{content}|upperCase' => 'hello world',
+]);
+```
+
+You can choose a different separator:
+
+```php
+$engine->setCustomParamModifierSeparator('::');
+```
+
+Then use it in call-site arguments:
+
+```php
+echo $engine->collection('ui')['title']([
+    '{content}::upperCase' => 'hello world',
+]);
+```
+
+Chaining also uses the configured separator:
+
+```php
+echo $engine->collection('ui')['title']([
+    '{content}::trim::upperCase' => ' hello world ',
+]);
+```
+
+Choose a separator that does not appear inside your tokens or modifier names.
+
 ---
 
 # Cross-collection composition
@@ -663,7 +839,7 @@ Collections can compose other registered collections by using the same engine in
 
 ```php
 $engine->register('icons', [
-    'save' => '<svg>{content}</svg>',
+    'save' => '<span>{content}</span>',
 ]);
 
 $engine->register('ui', [
@@ -723,9 +899,10 @@ A reliable way to use this package is:
 2. Use semantic namespaces such as `html`, `ui`, or `mail`.
 3. Use `register()` again to merge into or override an existing namespace.
 4. Keep template strings focused on markup.
-5. Use named placeholders consistently, including braces in keys.
-6. Escape untrusted content at the application boundary.
-7. Reuse a `TemplateEngine` instance instead of creating one per render.
+5. Use named tokens consistently.
+6. Use call-site token modifiers for caller-side transformations.
+7. Escape untrusted content at the application boundary.
+8. Reuse a `TemplateEngine` instance instead of creating one per render.
 
 ---
 
@@ -759,32 +936,31 @@ Template files used by presets should return arrays.
 
 ```text
 src/
-├── Template/
-│   └── UiPreset.php
-└── templates/
-    ├── default.php
-    └── partials.php
+|-- Template/
+|   `-- UiPreset.php
+`-- templates/
+    |-- default.php
+    `-- partials.php
 ```
 
 `src/Template/UiPreset.php`:
 
 ```php
-<?php
-
-use DalPraS\SmartTemplate\TemplateEngine;
-
-final class UiPreset
+final class UiPreset implements PresetInterface
 {
     public const NAMESPACE = 'ui';
 
     public static function register(
         TemplateEngine $engine,
-        string $templatesDir,
+        string $namespace = self::NAMESPACE,
+        array $overrides = [],
         bool $default = true,
     ): TemplateEngine {
+        $templatesDir = dirname(__DIR__) . '/templates';
+
         $templates = $engine->require($templatesDir . '/default.php');
 
-        return $engine->register(self::NAMESPACE, $templates, default: $default);
+        return $engine->register($namespace, $templates, default: $default);
     }
 }
 ```
@@ -796,7 +972,7 @@ final class UiPreset
 
 return [
     'layout' => [
-        'page' => '<main>{content}</main>',
+        'page' => '{content}',
     ],
 
     'partials' => $this->lazyRequire(__DIR__ . '/partials.php'),
@@ -827,7 +1003,9 @@ Be careful with:
 - inline JavaScript
 - mixed trusted and untrusted content
 
-Treat output escaping as an application concern. Use your escaper/helpers consistently when rendering untrusted data.
+Treat output escaping as an application concern.
+
+Use your escaper/helpers consistently when rendering untrusted data.
 
 ---
 
@@ -840,6 +1018,7 @@ Choose Smart Template when:
 - you are rendering many small reusable fragments
 - you want explicit control over composition
 - you want preset-based template registration
+- you want caller-side transformations without template-side expressions
 
 Consider a larger templating system when:
 
@@ -868,17 +1047,24 @@ defaultCollection(): RenderCollection
 hasCollection(string $namespace): bool
 
 register(string $namespace, array|RenderCollection $templates, bool $default = false): static
-addCustom(string $namespace, array $templates): static
-
 setDefaultNamespace(string $namespace): static
 getDefaultNamespace(): ?string
 
 require(string $path): mixed
 lazyRequire(string $path): LazyTemplateFile
 
-attributes(array $attribs): string
+attributes(array $attributes): string
+
 addCustomParamCallback(string $name, Closure $callback): static
 removeCustomParamCallback(string $name): bool
+getCustomParamCallbacks(): array
+
+addCustomParamModifier(string $name, Closure $callback): static
+removeCustomParamModifier(string $name): bool
+getCustomParamModifiers(): array
+
+setCustomParamModifierSeparator(string $separator): static
+getCustomParamModifierSeparator(): string
 ```
 
 ## `PresetInterface`
@@ -936,7 +1122,9 @@ Or explicitly:
 $engine->render('ui', ...);
 ```
 
-The engine no longer scans template directories or resolves template files by name. Files are loaded only when a preset explicitly calls `require()`.
+The engine no longer scans template directories or resolves template files by name.
+
+Files are loaded only when a preset explicitly calls `require()`.
 
 Avoid using filenames as namespaces:
 
