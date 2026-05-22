@@ -84,4 +84,47 @@ return [
     'img' => <<<HTML
         <img src="{src}" alt="{alt}" {attributes} />
         HTML,
+
+    'table' => <<<HTML
+        <div class="table-responsive">
+            <table {attributes}>
+                {content}
+            </table>
+        </div>
+        HTML,
+
+    'colgroup' => <<<HTML
+        <colgroup>
+            {content}
+        </colgroup>
+        HTML,
+
+    'col' => <<<HTML
+        <col style="width: {percent}%" />
+        HTML,
+
+    'thead' => <<<HTML
+        <thead {attributes}>
+            {content}
+        </thead>
+        HTML,
+
+    'tbody' => <<<HTML
+        <tbody {attributes}>
+            {content}
+        </tbody>
+        HTML,
+
+    'tr' => <<<HTML
+        <tr {attributes}>{content}</tr>
+        HTML,
+
+    'th' =><<<HTML
+        <th class="{class}" {attributes}>{content}</th>
+        HTML,
+
+    'td' => <<<HTML
+        <td class="{class}" {attributes}>{content}</td>
+        HTML,
+
 ];
