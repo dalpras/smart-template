@@ -73,9 +73,45 @@ return [
         <div {attributes}>{content}</div>
         HTML,
 
+    'form' => <<<HTML
+        <form action="{action}" method="{method}" {attributes}>{content}</form>
+        HTML,
+
+    'fieldset' => <<<HTML
+        <fieldset {attributes}>{content}</fieldset>
+        HTML,
+
+    'legend' => <<<HTML
+        <legend {attributes}>{content}</legend>
+        HTML,
+
+    'label' => <<<HTML
+        <label for="{for}" {attributes}>{content}</label>
+        HTML,
+
     'input' => <<<HTML
         <input type="{type}" value="{value}" {attributes} />
-        HTML,        
+        HTML,
+
+    'textarea' => <<<HTML
+        <textarea name="{name}" {attributes}>{content}</textarea>
+        HTML,
+
+    'select' => <<<HTML
+        <select name="{name}" {attributes}>{content}</select>
+        HTML,
+
+    'option' => <<<HTML
+        <option value="{value}" {attributes}>{content}</option>
+        HTML,
+
+    'optgroup' => <<<HTML
+        <optgroup label="{label}" {attributes}>{content}</optgroup>
+        HTML,
+
+    'button' => <<<HTML
+        <button type="{type}" {attributes}>{content}</button>
+        HTML,
 
     'a' => <<<HTML
         <a aria-label="{label}" href="{url}" {attributes}>{content}</a>
