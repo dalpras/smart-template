@@ -11,13 +11,6 @@ interface EscaperInterface
     public function escapeHtml(string $text);
 
     /**
-     * Escape a string for the HTML Attribute context. We use an extended set of characters
-     * to escape that are not covered by htmlspecialchars() to cover cases where an attribute
-     * might be unquoted or quoted illegally (e.g. backticks are valid quotes for IE).
-     */
-    public function escapeHtmlAttr(string $text);
-
-    /**
      * Escape a string for the Javascript context. This does not use json_encode(). An extended
      * set of characters are escaped beyond ECMAScript's rules for Javascript literal string
      * escaping in order to prevent misinterpretation of Javascript as HTML leading to the

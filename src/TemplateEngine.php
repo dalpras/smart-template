@@ -70,14 +70,14 @@ class TemplateEngine
 
         $this->attributeRender = function ($name, $value): string {
             $value = match ($name) {
-                'id' => $this->helpers?->escaper()?->escapeHtmlAttr(
+                'id' => $this->helpers?->escaper()?->escapeHtml(
                     $this->normalizeId((string) $value)
                 ) ?? $this->normalizeId((string) $value),
 
                 'title',
                 'name',
                 'alt',
-                'aria-label' => $this->helpers?->escaper()?->escapeHtmlAttr(
+                'aria-label' => $this->helpers?->escaper()?->escapeHtml(
                     (string) $value
                 ) ?? (string) $value,
 
