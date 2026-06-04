@@ -21,6 +21,10 @@ return [
         <span {attributes}>{content}</span>
         HTML,
 
+    'code' => <<<HTML
+        <code>{content}</code>
+        HTML,
+
     'section' => <<<HTML
         <section {attributes}>{content}</section>
         HTML,
