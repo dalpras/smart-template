@@ -25,8 +25,16 @@ return [
         <code>{content}</code>
         HTML,
 
+    'pre' => <<<HTML
+        <pre>{content}</pre>
+        HTML,
+
     'section' => <<<HTML
         <section {attributes}>{content}</section>
+        HTML,
+
+    'style' => <<<HTML
+        <style {attributes}>{content}</style>
         HTML,
 
     'strong' => <<<HTML
