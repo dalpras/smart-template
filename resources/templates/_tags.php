@@ -168,11 +168,11 @@ return [
         HTML,
 
     'th' =><<<HTML
-        <th class="{class}" {attributes}>{content}</th>
+        <th {attributes} class="{class}">{content}</th>
         HTML,
 
     'td' => <<<HTML
-        <td class="{class}" {attributes}>{content}</td>
+        <td {attributes} class="{class}">{content}</td>
         HTML,
 
 ];
