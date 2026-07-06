@@ -17,6 +17,10 @@ return [
         <h4 {attributes}>{content}</h4>
         HTML,
 
+    'header' => <<<HTML
+        <header {attributes}>{content}</header>
+        HTML,
+
     'span' => <<<HTML
         <span {attributes}>{content}</span>
         HTML,
