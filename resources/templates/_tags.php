@@ -102,7 +102,7 @@ return [
         HTML,
 
     'label' => <<<HTML
-        <label for="{for}" {attributes}>{content}</label>
+        <label {attributes}>{content}</label>
         HTML,
 
     'input' => <<<HTML
@@ -110,11 +110,11 @@ return [
         HTML,
 
     'textarea' => <<<HTML
-        <textarea name="{name}" {attributes}>{content}</textarea>
+        <textarea {attributes}>{content}</textarea>
         HTML,
 
     'select' => <<<HTML
-        <select name="{name}" {attributes}>{content}</select>
+        <select {attributes}>{content}</select>
         HTML,
 
     'option' => <<<HTML
@@ -126,7 +126,7 @@ return [
         HTML,
 
     'button' => <<<HTML
-        <button type="{type}" {attributes}>{content}</button>
+        <button {attributes}>{content}</button>
         HTML,
 
     'a' => <<<HTML
