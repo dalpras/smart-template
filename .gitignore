@@ -1,1 +1,7 @@
-/vendor/
+**/node_modules
+xdebug-profiler/
+.buildpath
+.settings
+vendor
+vendor/*
+composer.lock
