@@ -539,37 +539,78 @@ Placeholder closures receive:
 
 ---
 
-# Rendering attributes
+# Rendering HTML attributes with `|join`
 
-The engine includes an `attributes()` helper.
-
-```php
-echo '<input ' . $engine->attributes([
-    'id' => 'user[email]',
-    'name' => 'user[email]',
-    'title' => 'Email address',
-    'class' => 'form-control',
-]) . '>';
-```
-
-Example output:
-
-```html
-<input id="user-email" name="user[email]" title="Email address" class="form-control">
-```
-
-Notes:
-
-- `id` values are normalized into an HTML-friendly form
-- `id`, `title`, `name`, and `alt` can be escaped through configured helpers
-- closures are supported as attribute values
+HTML attributes are serialized by `HtmlAttributes`, **not** by `TemplateEngine`.
+Registering the `HtmlPreset` automatically installs the `join` modifier and an
+empty default for optional `{attributes}` placeholders:
 
 ```php
-echo '<button ' . $engine->attributes([
-    'class' => fn () => 'btn btn-primary',
-    'title' => fn () => 'Save changes',
-]) . '>Save</button>';
+use DalPraS\SmartTemplate\TemplateEngine;
+use DalPraS\SmartTemplate\Preset\HtmlPreset;
+
+$engine = new TemplateEngine();
+HtmlPreset::register($engine);
+
+// Templates still contain {attributes}; modifiers belong to the argument key.
+echo $engine->collection('html')['input']([
+    '{type}' => 'email',
+    '{value}' => '',
+    '{attributes}|join' => [
+        'id' => 'user[email]',
+        'name' => 'user[email]',
+        'title' => 'Email address',
+        'class' => 'form-control',
+    ],
+]);
 ```
+
+An attribute list is traversed **once**, and the resulting fragments are
+combined with `implode(' ', ...)`. `id` uses normalized bracket notation,
+`id`/`name` are omitted when empty, `true` creates a bare boolean attribute,
+`false` omits it, and closures are evaluated before rendering.
+All values are quoted, including the values of attributes not in the escaping
+list (quotes in those values are replaced with `&quot;`).
+
+**Configure value escaping in one place:**
+
+```php
+use DalPraS\SmartTemplate\HtmlAttributes;
+
+$escaper = $helpers->escaper();
+
+(new HtmlAttributes(
+    escape: static fn(string $value): string => $escaper->escapeHtml($value),
+    escapedNames: ['id', 'title', 'name', 'alt', 'aria-label'],
+    omitEmptyNames: ['id', 'name'],
+))->register($engine);
+```
+
+This replaces the default `join` configuration for that engine, retaining
+ordinary joining of lists. Only names in `escapedNames` invoke `escape`;
+choose additional names (or all relevant names) based on your trust boundary.
+The default policy uses `htmlspecialchars(..., ENT_QUOTES | ENT_SUBSTITUTE,
+'UTF-8')` for these names, even without application helpers.
+`HtmlAttributes::normalizeId()` is available if the same normalization is
+needed outside templates.
+
+You can also install this modifier without registering the HTML preset:
+
+```php
+(new HtmlAttributes())->register($engine);
+```
+
+For generic arrays, `{content}|join` joins non-null, non-empty elements
+with spaces. **Do not use `{attributes}` with a raw array**: it must be
+`{attributes}|join` so the HTML serializer runs. The `escapeTitles` modifier
+is not needed; escaping is performed once, inside the serializer.
+
+**Migrating from the old HTML-specific `TemplateEngine` API:** replace
+`$engine->attributes($values)` with `(new HtmlAttributes())->join($values)`
+when composing HTML directly outside a template. `setAttributeRender()` and
+`setAttributeComposer()` are replaced by `HtmlAttributes` constructor options;
+`$engine->normalizeId($id)` becomes `HtmlAttributes::normalizeId($id)`.
+The engine deliberately no longer exposes those HTML-specific methods.
 
 ---
 
@@ -577,34 +618,26 @@ echo '<button ' . $engine->attributes([
 
 You can register callbacks that transform or provide exact token values before final substitution.
 
-A common use case is rendering HTML attributes from an array.
+Callbacks are useful for optional tokens, fallbacks, or application-specific
+transformations. For HTML attributes, prefer the `|join` modifier described
+above, rather than a custom parameter callback that renders arrays.
 
 ```php
-$engine->addCustomParamCallback(
-    '{attributes}',
-    static function ($value) use ($engine): string {
-        return $value === null ? '' : $engine->attributes((array) $value);
-    }
-);
-
 $engine->addCustomParamCallback(
     '{class}',
     static fn ($value): string => $value === null ? '' : trim((string) $value)
 );
 ```
 
-Then templates can use `{attributes}` consistently:
+Example:
 
 ```php
 $engine->register('ui', [
-    'button' => '<button {attributes}>{label}</button>',
+    'button' => '<button class="{class}">{label}</button>',
 ]);
 
 echo $engine->collection('ui')['button']([
-    '{attributes}' => [
-        'type' => 'button',
-        'class' => 'btn btn-primary',
-    ],
+    '{class}' => 'btn btn-primary',
     '{label}' => 'Save',
 ]);
 ```
@@ -702,45 +735,23 @@ Output:
 
 ## Modifiers run before parameter callbacks
 
-Modifiers are resolved before custom parameter callbacks.
+Modifiers resolve a value before exact-token callbacks receive it.
+For the `join` modifier, this means the callback for `{attributes}` (provided
+by `HtmlAttributes::register()`) sees a **rendered string**, not an array.
+A missing `{attributes}` is replaced with the empty string automatically
+when `HtmlAttributes` is registered.
 
-This is useful when a modifier prepares structured data that a callback will later render.
-
-```php
-$engine->addCustomParamModifier(
-    'primaryButton',
-    static function (mixed $value): array {
-        $attributes = is_array($value) ? $value : [];
-
-        $attributes['class'] = trim(($attributes['class'] ?? '') . ' btn btn-primary');
-
-        return $attributes;
-    }
-);
-
-$engine->addCustomParamCallback(
-    '{attributes}',
-    static fn (mixed $value): string => $value === null
-        ? ''
-        : $engine->attributes((array) $value)
-);
-```
-
-Template:
+To customize attribute rendering, configure `HtmlAttributes` instead of
+registering a second array-rendering callback:
 
 ```php
-$engine->register('ui', [
-    'button' => '<button {attributes}>{content}</button>',
-]);
-```
+use DalPraS\SmartTemplate\HtmlAttributes;
 
-Usage:
+(new HtmlAttributes())->register($engine);
+$engine->register('ui', ['button' => '<button {attributes}>{content}</button>']);
 
-```php
 echo $engine->collection('ui')['button']([
-    '{attributes}|primaryButton' => [
-        'type' => 'submit',
-    ],
+    '{attributes}|join' => ['type' => 'submit', 'class' => 'btn btn-primary'],
     '{content}' => 'Save',
 ]);
 ```

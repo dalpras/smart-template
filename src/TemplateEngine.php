@@ -27,7 +27,7 @@ class TemplateEngine
     private ?string $defaultNamespace = null;
 
     /**
-     * Exact placeholder callbacks, for example {attributes} or {class}.
+     * Exact placeholder callbacks, for example {content} or {class}.
      *
      * @var array<string, Closure>
      */
@@ -46,47 +46,9 @@ class TemplateEngine
     private string $customParamModifierSeparator = '|';
 
     /**
-     * Builds a single HTML attribute string.
-     */
-    private Closure $attributeComposer;
-
-    /**
-     * Normalizes and renders one attribute.
-     */
-    protected Closure $attributeRender;
-
-    /**
      * Optional application helpers.
      */
     protected ?HelpersInterface $helpers = null;
-
-    /**
-     * Configure default attribute rendering.
-     */
-    public function __construct()
-    {
-        $this->attributeComposer = static fn($name, $value): string =>
-            $name . '="' . str_replace('"', '&quot;', (string) $value) . '"';
-
-        $this->attributeRender = function ($name, $value): string {
-            $value = match ($name) {
-                'id' => $this->helpers?->escaper()?->escapeHtml(
-                    $this->normalizeId((string) $value)
-                ) ?? $this->normalizeId((string) $value),
-
-                'title',
-                'name',
-                'alt',
-                'aria-label' => $this->helpers?->escaper()?->escapeHtml(
-                    (string) $value
-                ) ?? (string) $value,
-
-                default => $value,
-            };
-
-            return ($this->attributeComposer)($name, $value);
-        };
-    }
 
     /**
      * Render a named template collection.
@@ -261,33 +223,6 @@ class TemplateEngine
     public function lazyRequire(string $path): LazyTemplateFile
     {
         return new LazyTemplateFile($path);
-    }
-
-    /**
-     * Render an associative array as HTML attributes.
-     */
-    public function attributes(array $attributes): string
-    {
-        if ($attributes === []) {
-            return '';
-        }
-
-        $render = $this->attributeRender;
-        $out = [];
-
-        foreach ($attributes as $name => $value) {
-            if ($value instanceof Closure) {
-                $value = $value();
-            }
-
-            $rendered = $render($name, $value);
-
-            if ($rendered !== '') {
-                $out[] = $rendered;
-            }
-        }
-
-        return implode(' ', $out);
     }
 
     /**
@@ -484,42 +419,6 @@ class TemplateEngine
     }
 
     /**
-     * Replace the attribute render callback.
-     */
-    public function setAttributeRender(Closure $attributeRender): static
-    {
-        $this->attributeRender = $attributeRender;
-
-        return $this;
-    }
-
-    /**
-     * Replace the low-level attribute composer callback.
-     */
-    public function setAttributeComposer(Closure $attributeComposer): static
-    {
-        $this->attributeComposer = $attributeComposer;
-
-        return $this;
-    }
-
-    /**
-     * Return the low-level attribute composer callback.
-     */
-    public function getAttributeComposer(): Closure
-    {
-        return $this->attributeComposer;
-    }
-
-    /**
-     * Normalize bracket notation into a safe HTML id.
-     */
-    public function normalizeId(string $value): string
-    {
-        return trim(strtr($value, ['[' => '-', ']' => '']), '-');
-    }
-
-    /**
      * Register an exact placeholder callback.
      */
     public function addCustomParamCallback(string $name, Closure $callback): static
@@ -608,49 +507,41 @@ class TemplateEngine
     private function resolveCustomParamModifiers(array $args): array
     {
         $separator = $this->customParamModifierSeparator;
+        $separatorLength = strlen($separator);
+        $modifiers = $this->customParamModifiers;
 
         foreach ($args as $rawKey => $value) {
-            if (!is_string($rawKey) || !str_contains($rawKey, $separator)) {
+            if (!is_string($rawKey) || ($separatorOffset = strpos($rawKey, $separator)) === false) {
                 continue;
             }
 
-            [$placeholder, $modifierChain] = explode($separator, $rawKey, 2);
-
-            $placeholder = trim($placeholder);
-            $modifierChain = trim($modifierChain);
+            $placeholder = trim(substr($rawKey, 0, $separatorOffset));
+            $modifierChain = trim(substr($rawKey, $separatorOffset + $separatorLength));
 
             if (!$this->isValidCustomParamToken($placeholder) || $modifierChain === '') {
                 continue;
             }
 
-            $modifiers = array_values(
-                array_filter(
-                    array_map('trim', explode($separator, $modifierChain)),
-                    static fn(string $modifier): bool => $modifier !== ''
-                )
-            );
-
-            if ($modifiers === []) {
-                continue;
-            }
-
-            foreach ($modifiers as $modifier) {
-                if (!isset($this->customParamModifiers[$modifier])) {
-                    continue;
+            // The common one-modifier path avoids explode/map/filter allocations.
+            if (!str_contains($modifierChain, $separator)) {
+                if (isset($modifiers[$modifierChain])) {
+                    $value = $modifiers[$modifierChain](
+                        $value, $placeholder, $modifierChain, $rawKey, $args, $this
+                    );
                 }
+            } else {
+                foreach (explode($separator, $modifierChain) as $modifier) {
+                    $modifier = trim($modifier);
 
-                $value = $this->customParamModifiers[$modifier](
-                    $value,
-                    $placeholder,
-                    $modifier,
-                    $rawKey,
-                    $args,
-                    $this
-                );
+                    if ($modifier !== '' && isset($modifiers[$modifier])) {
+                        $value = $modifiers[$modifier](
+                            $value, $placeholder, $modifier, $rawKey, $args, $this
+                        );
+                    }
+                }
             }
 
             $args[$placeholder] = $value;
-
             unset($args[$rawKey]);
         }
 

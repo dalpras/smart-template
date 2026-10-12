@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DalPraS\SmartTemplate\Preset;
 
 use DalPraS\SmartTemplate\Collection\RenderCollection;
+use DalPraS\SmartTemplate\HtmlAttributes;
 use DalPraS\SmartTemplate\TemplateEngine;
 
 final class HtmlPreset implements PresetInterface
@@ -31,6 +32,12 @@ final class HtmlPreset implements PresetInterface
         }
 
         $engine->register($namespace, $templates, default: $default);
+
+        // Provide the default |join serializer without replacing an application
+        // serializer that may already be registered.
+        if (!isset($engine->getCustomParamModifiers()['join'])) {
+            (new HtmlAttributes())->register($engine);
+        }
 
         if ($overrides !== []) {
             $engine->register($namespace, $overrides);

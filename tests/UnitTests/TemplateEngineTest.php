@@ -279,46 +279,25 @@ final class TemplateEngineTest extends TestCase
     public function testCustomParamCallbackTransformsProvidedValue(): void
     {
         $engine = new TemplateEngine();
-
-        $engine->register('ui', [
-            'button' => '<button {attributes}>{label}</button>',
-        ]);
-
-        $engine->addCustomParamCallback('{attributes}', static function ($value) use ($engine): string {
-            return $value === null ? '' : $engine->attributes($value);
-        });
-
-        $result = $engine->collection('ui')['button']([
-            '{attributes}' => [
-                'type' => 'button',
-                'class' => 'btn',
-            ],
-            '{label}' => 'Save',
-        ]);
-
-        self::assertSame(
-            '<button type="button" class="btn">Save</button>',
-            $result
+        $engine->register('ui', ['message' => '<p>{label}</p>']);
+        $engine->addCustomParamCallback('{label}', static fn(?string $value): string =>
+            strtoupper($value ?? '')
         );
+
+        self::assertSame('<p>SAVE</p>', $engine->collection('ui')['message']([
+            '{label}' => 'Save',
+        ]));
     }
 
     public function testCustomParamCallbackInjectsMissingValue(): void
     {
         $engine = new TemplateEngine();
+        $engine->register('ui', ['message' => '<p>{label}</p>']);
+        $engine->addCustomParamCallback('{label}', static fn(?string $value): string =>
+            $value ?? 'Default'
+        );
 
-        $engine->register('ui', [
-            'button' => '<button {attributes}>{label}</button>',
-        ]);
-
-        $engine->addCustomParamCallback('{attributes}', static function ($value) use ($engine): string {
-            return $value === null ? '' : $engine->attributes($value);
-        });
-
-        $result = $engine->collection('ui')['button']([
-            '{label}' => 'Save',
-        ]);
-
-        self::assertSame('<button >Save</button>', $result);
+        self::assertSame('<p>Default</p>', $engine->collection('ui')['message']([]));
     }
 
     public function testRemoveCustomParamCallback(): void
@@ -332,73 +311,28 @@ final class TemplateEngineTest extends TestCase
         self::assertSame([], $engine->getCustomParamCallbacks());
     }
 
-    public function testAttributesRenderValues(): void
+    public function testModifierChainAndCustomSeparator(): void
     {
         $engine = new TemplateEngine();
+        $engine->register('ui', ['message' => '<p>{content}</p>']);
+        $engine->addCustomParamModifier('trim', static fn(string $value): string => trim($value));
+        $engine->addCustomParamModifier('uppercase', static fn(string $value): string => strtoupper($value));
+        $render = $engine->collection('ui')['message'];
 
-        $result = $engine->attributes([
-            'id' => 'user[email]',
-            'name' => 'user[email]',
-            'title' => 'Email address',
-            'class' => 'form-control',
-        ]);
-
-        self::assertSame(
-            'id="user-email" name="user[email]" title="Email address" class="form-control"',
-            $result
-        );
-    }
-
-    public function testAttributesRenderClosureValues(): void
-    {
-        $engine = new TemplateEngine();
-
-        $result = $engine->attributes([
-            'class' => static fn(): string => 'btn btn-primary',
-        ]);
-
-        self::assertSame('class="btn btn-primary"', $result);
-    }
-
-    public function testCustomAttributeComposer(): void
-    {
-        $engine = new TemplateEngine();
-
-        $engine->setAttributeComposer(
-            static fn($name, $value): string => sprintf('%s=%s', $name, $value)
-        );
-
-        self::assertSame('class=btn', $engine->attributes([
-            'class' => 'btn',
+        self::assertSame('<p>HELLO</p>', $render([
+            '{content}|trim|uppercase' => '  hello  ',
         ]));
-    }
+        self::assertSame('<p>HELLO</p>', $render([
+            '{content}| trim || unknown | uppercase' => '  hello  ',
+        ]));
+        self::assertSame('<p>hello</p>', $render([
+            '{content}|doesNotExist' => 'hello',
+        ]));
 
-    public function testCustomAttributeRenderCanSkipAttributes(): void
-    {
-        $engine = new TemplateEngine();
-
-        $engine->setAttributeRender(static function ($name, $value): string {
-            if ($value === null || $value === '') {
-                return '';
-            }
-
-            return $name . '="' . $value . '"';
-        });
-
-        $result = $engine->attributes([
-            'id' => '',
-            'class' => 'btn',
-        ]);
-
-        self::assertSame('class="btn"', $result);
-    }
-
-    public function testNormalizeId(): void
-    {
-        $engine = new TemplateEngine();
-
-        self::assertSame('user-email', $engine->normalizeId('user[email]'));
-        self::assertSame('items-0-name', $engine->normalizeId('items[0][name]'));
+        $engine->setCustomParamModifierSeparator('::');
+        self::assertSame('<p>HELLO</p>', $render([
+            '{content}::trim::uppercase' => ' hello ',
+        ]));
     }
 
     public function testStringifiesCommonValues(): void
