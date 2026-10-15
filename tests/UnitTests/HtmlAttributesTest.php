@@ -28,6 +28,25 @@ final class HtmlAttributesTest extends TestCase
         self::assertSame('items-0-name', HtmlAttributes::normalizeId('items[0][name]'));
     }
 
+    public function testAjaxUrlAttributeEscapesRawQuerySeparatorOnce(): void
+    {
+        // URL helpers must return raw query separators to the attribute renderer.
+        // The browser will decode this escaped HTML attribute exactly once.
+        $attributes = new HtmlAttributes(escapedNames: ['data-fz-url']);
+        $html = $attributes->join([
+            'data-fz-url' => '/article/admin-content/create-fragment?sid=321&type=main',
+        ]);
+
+        self::assertSame(
+            'data-fz-url="/article/admin-content/create-fragment?sid=321&amp;type=main"',
+            $html,
+        );
+        self::assertSame(1, preg_match('/data-fz-url="([^"]+)"/', $html, $matches));
+        $browserUrl = html_entity_decode($matches[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        parse_str(parse_url($browserUrl, PHP_URL_QUERY), $params);
+        self::assertSame(['sid' => '321', 'type' => 'main'], $params);
+    }
+
     public function testBooleansNullsAndLazyAttributes(): void
     {
         $attributes = new HtmlAttributes();
