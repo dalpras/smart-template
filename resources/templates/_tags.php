@@ -138,11 +138,9 @@ return [
         HTML,
 
     'table' => <<<HTML
-        <div class="table-responsive">
-            <table {attributes}>
-                {content}
-            </table>
-        </div>
+        <table {attributes}>
+            {content}
+        </table>
         HTML,
 
     'colgroup' => <<<HTML
@@ -172,11 +170,11 @@ return [
         HTML,
 
     'th' =><<<HTML
-        <th {attributes} class="{class}">{content}</th>
+        <th {attributes}>{content}</th>
         HTML,
 
     'td' => <<<HTML
-        <td {attributes} class="{class}">{content}</td>
+        <td {attributes}>{content}</td>
         HTML,
 
 ];
